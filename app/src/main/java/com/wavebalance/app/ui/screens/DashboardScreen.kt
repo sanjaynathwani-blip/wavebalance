@@ -81,6 +81,7 @@ fun DashboardScreen(
     onNavigateToOptimizer: () -> Unit,
     onNavigateToDetails: () -> Unit = {},
     onNavigateToSurvey: () -> Unit = {},
+    onNavigateToSpeedDiagnostic: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val activeConn by viewModel.activeConnection.collectAsState()
@@ -125,7 +126,8 @@ fun DashboardScreen(
         item {
             PerformanceGaugeSection(
                 score = rfQualityScore,
-                activeConn = activeConn
+                activeConn = activeConn,
+                onNavigateToSpeedDiagnostic = onNavigateToSpeedDiagnostic
             )
         }
 
@@ -168,6 +170,7 @@ fun DashboardScreen(
                 },
                 onNavigateToOptimizer = onNavigateToOptimizer,
                 onNavigateToSurvey = onNavigateToSurvey,
+                onNavigateToSpeedDiagnostic = onNavigateToSpeedDiagnostic,
                 onExportReport = { viewModel.shareAuditReport(context) }
             )
         }
@@ -497,7 +500,8 @@ fun TelemetryGridCell(
 @Composable
 fun PerformanceGaugeSection(
     score: Int,
-    activeConn: ActiveConnectionInfo?
+    activeConn: ActiveConnectionInfo?,
+    onNavigateToSpeedDiagnostic: () -> Unit = {}
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -524,12 +528,24 @@ fun PerformanceGaugeSection(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                 }
-                Text(
-                    text = "Real-Time Telemetry",
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = PrimaryContainerBlue.copy(alpha = 0.15f),
+                    modifier = Modifier.clickable { onNavigateToSpeedDiagnostic() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Speed Test",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                            color = PrimaryContainerBlue
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -788,6 +804,7 @@ fun ActionCenterSection(
     onNavigateToRadar: () -> Unit,
     onNavigateToOptimizer: () -> Unit,
     onNavigateToSurvey: () -> Unit = {},
+    onNavigateToSpeedDiagnostic: () -> Unit = {},
     onExportReport: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -812,7 +829,60 @@ fun ActionCenterSection(
             )
         }
 
-        // Secondary Action: Site Survey & Coverage Heatmap
+        // Action: Speed & Ping Jitter Latency Diagnostic Engine
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNavigateToSpeedDiagnostic() },
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceContainerHigh)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Speed,
+                        contentDescription = null,
+                        tint = SecondaryContainerEmerald,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Speed & Ping Jitter Diagnostic",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Bufferbloat, SQM grade, latency jitter & QoS assessment",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SecondaryContainerEmerald.copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = "Test",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = SecondaryContainerEmerald,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+        }
+
+        // Action: Site Survey & Coverage Heatmap
         Card(
             modifier = Modifier
                 .fillMaxWidth()

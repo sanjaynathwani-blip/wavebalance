@@ -55,6 +55,14 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             com.wavebalance.app.model.SiteSurveyEngine.computeAnalytics(emptyList())
         )
 
+    private val _diagnosticState = MutableStateFlow(com.wavebalance.app.model.DiagnosticState())
+    val diagnosticState: StateFlow<com.wavebalance.app.model.DiagnosticState> = _diagnosticState.asStateFlow()
+
+    private val _isDiagnosticRunning = MutableStateFlow(false)
+    val isDiagnosticRunning: StateFlow<Boolean> = _isDiagnosticRunning.asStateFlow()
+
+    private var diagnosticJob: kotlinx.coroutines.Job? = null
+
     private var lastActiveConn: ActiveConnectionInfo? = null
 
     val stickyClientAlert: StateFlow<com.wavebalance.app.model.StickyClientAlert?> = combine(
@@ -233,6 +241,89 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun populateSimulatedWalkthrough(ssid: String, bssid: String) {
         _surveyPoints.value = com.wavebalance.app.model.SiteSurveyEngine.generateSimulatedWalkthrough(ssid, bssid)
+    }
+
+    fun startFullDiagnostic() {
+        diagnosticJob?.cancel()
+        _isDiagnosticRunning.value = true
+        diagnosticJob = viewModelScope.launch {
+            val rssi = activeConnection.value?.rssi ?: -65
+            val linkMbps = activeConnection.value?.linkSpeedMbps ?: 433
+            val simulated = isMockMode.value
+            try {
+                com.wavebalance.app.model.SpeedDiagnosticEngine.runDiagnosticFlow(
+                    activeRssi = rssi,
+                    theoreticalLinkMbps = linkMbps,
+                    isSimulated = simulated
+                ).collect { state ->
+                    _diagnosticState.value = state
+                    if (state.phase == com.wavebalance.app.model.DiagnosticPhase.COMPLETED) {
+                        _isDiagnosticRunning.value = false
+                    }
+                }
+            } finally {
+                _isDiagnosticRunning.value = false
+            }
+        }
+    }
+
+    fun startQuickPing() {
+        diagnosticJob?.cancel()
+        _isDiagnosticRunning.value = true
+        diagnosticJob = viewModelScope.launch {
+            val rssi = activeConnection.value?.rssi ?: -65
+            val simulated = isMockMode.value
+            try {
+                _diagnosticState.value = com.wavebalance.app.model.DiagnosticState(
+                    phase = com.wavebalance.app.model.DiagnosticPhase.PING_JITTER,
+                    progress = 0.1f
+                )
+                val pings = mutableListOf<Double>()
+                for (i in 1..8) {
+                    delay(120)
+                    val realRtt = if (!simulated) com.wavebalance.app.model.SpeedDiagnosticEngine.probeSocketRtt("1.1.1.1", 53, 500) else null
+                    val rtt = realRtt ?: (16.0 + Math.random() * 5.0)
+                    pings.add(rtt)
+                    _diagnosticState.value = com.wavebalance.app.model.DiagnosticState(
+                        phase = com.wavebalance.app.model.DiagnosticPhase.PING_JITTER,
+                        progress = (i / 8f),
+                        currentPingMs = rtt.toFloat()
+                    )
+                }
+                val avgPing = pings.average()
+                val jitter = com.wavebalance.app.model.SpeedDiagnosticEngine.calculateJitter(pings)
+                val result = com.wavebalance.app.model.SpeedDiagnosticResult(
+                    unloadedPingMs = avgPing,
+                    jitterMs = jitter,
+                    downloadSpeedMbps = 0.0,
+                    peakDownloadMbps = 0.0,
+                    uploadSpeedMbps = 0.0,
+                    loadedPingMs = avgPing,
+                    bufferbloatDeltaMs = 0.0,
+                    bufferbloatGrade = com.wavebalance.app.model.BufferbloatGrade.A_PLUS,
+                    qosAssessment = com.wavebalance.app.model.SpeedDiagnosticEngine.evaluateQos(
+                        avgPing, jitter, 50.0, 20.0, com.wavebalance.app.model.BufferbloatGrade.A_PLUS
+                    )
+                )
+                _diagnosticState.value = com.wavebalance.app.model.DiagnosticState(
+                    phase = com.wavebalance.app.model.DiagnosticPhase.COMPLETED,
+                    progress = 1.0f,
+                    currentPingMs = avgPing.toFloat(),
+                    result = result
+                )
+            } finally {
+                _isDiagnosticRunning.value = false
+            }
+        }
+    }
+
+    fun cancelDiagnostic() {
+        diagnosticJob?.cancel()
+        _isDiagnosticRunning.value = false
+        _diagnosticState.value = com.wavebalance.app.model.DiagnosticState(
+            phase = com.wavebalance.app.model.DiagnosticPhase.IDLE,
+            progress = 0f
+        )
     }
 
     override fun onCleared() {

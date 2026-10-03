@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
@@ -96,6 +98,11 @@ fun WaveBalanceAdaptiveApp(
 ) {
     var currentDestination by remember { mutableStateOf(AppDestination.DASHBOARD) }
     var showPermissionModal by remember { mutableStateOf(false) }
+    var showSpeedDiagnostic by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = showSpeedDiagnostic) {
+        showSpeedDiagnostic = false
+    }
 
     val allAps by viewModel.filteredAccessPoints.collectAsState()
     val activeConn by viewModel.activeConnection.collectAsState()
@@ -169,8 +176,11 @@ fun WaveBalanceAdaptiveApp(
                         }
                     },
                     label = { Text(destination.label) },
-                    selected = currentDestination == destination,
-                    onClick = { currentDestination = destination }
+                    selected = !showSpeedDiagnostic && currentDestination == destination,
+                    onClick = {
+                        currentDestination = destination
+                        showSpeedDiagnostic = false
+                    }
                 )
             }
         }
@@ -186,22 +196,31 @@ fun WaveBalanceAdaptiveApp(
                         when (keyEvent.key) {
                             Key.One, Key.D -> {
                                 currentDestination = AppDestination.DASHBOARD
+                                showSpeedDiagnostic = false
                                 true
                             }
                             Key.Two, Key.R -> {
                                 currentDestination = AppDestination.RADAR
+                                showSpeedDiagnostic = false
                                 true
                             }
                             Key.Three, Key.H -> {
                                 currentDestination = AppDestination.SURVEY
+                                showSpeedDiagnostic = false
                                 true
                             }
                             Key.Four, Key.A -> {
                                 currentDestination = AppDestination.DETAILS
+                                showSpeedDiagnostic = false
                                 true
                             }
                             Key.Five, Key.O -> {
                                 currentDestination = AppDestination.OPTIMIZER
+                                showSpeedDiagnostic = false
+                                true
+                            }
+                            Key.T -> {
+                                showSpeedDiagnostic = !showSpeedDiagnostic
                                 true
                             }
                             Key.S -> {
@@ -272,7 +291,10 @@ fun WaveBalanceAdaptiveApp(
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = "WaveBalance",
-                                        style = MaterialTheme.typography.titleLarge,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     if (isMockMode) {
@@ -292,7 +314,7 @@ fun WaveBalanceAdaptiveApp(
                                     }
                                 }
                                 Text(
-                                    text = when (currentDestination) {
+                                    text = if (showSpeedDiagnostic) "Speed, Ping & Bufferbloat" else when (currentDestination) {
                                         AppDestination.DASHBOARD -> "Wi-Fi Dashboard & RF Health"
                                         AppDestination.RADAR -> "Spectrum Scanner & Radar"
                                         AppDestination.SURVEY -> "Site Survey & RF Heatmap"
@@ -300,6 +322,8 @@ fun WaveBalanceAdaptiveApp(
                                         AppDestination.OPTIMIZER -> "Channel Interference Optimizer"
                                     },
                                     style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -323,6 +347,13 @@ fun WaveBalanceAdaptiveApp(
                                 )
                             )
                             Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(onClick = { showSpeedDiagnostic = !showSpeedDiagnostic }) {
+                                Icon(
+                                    imageVector = Icons.Default.Speed,
+                                    contentDescription = "Speed & Latency Diagnostic",
+                                    tint = if (showSpeedDiagnostic) SecondaryContainerEmerald else MaterialTheme.colorScheme.primary
+                                )
+                            }
                             IconButton(onClick = { viewModel.shareAuditReport(context) }) {
                                 Icon(
                                     imageVector = Icons.Default.Share,
@@ -346,50 +377,58 @@ fun WaveBalanceAdaptiveApp(
 
                 // Body content based on destination
                 Box(modifier = Modifier.weight(1f)) {
-                    when (currentDestination) {
-                        AppDestination.DASHBOARD -> {
-                            DashboardScreen(
-                                viewModel = viewModel,
-                                onNavigateToRadar = { currentDestination = AppDestination.RADAR },
-                                onNavigateToOptimizer = { currentDestination = AppDestination.OPTIMIZER },
-                                onNavigateToSurvey = { currentDestination = AppDestination.SURVEY },
-                                onNavigateToDetails = {
-                                    val activeBssid = activeConn?.bssid
-                                    val target = allAps.find { it.bssid.equals(activeBssid, ignoreCase = true) } ?: allAps.firstOrNull()
-                                    viewModel.selectAccessPoint(target)
-                                    currentDestination = AppDestination.DETAILS
-                                }
-                            )
-                        }
-                        AppDestination.RADAR -> {
-                            WifiScanScreen(
-                                viewModel = viewModel,
-                                onRequestPermissions = {
-                                    showPermissionModal = false
-                                    permissionLauncher.launch(requiredPermissions)
-                                },
-                                onNavigateToDetails = { ap ->
-                                    viewModel.selectAccessPoint(ap)
-                                    currentDestination = AppDestination.DETAILS
-                                }
-                            )
-                        }
-                        AppDestination.SURVEY -> {
-                            com.wavebalance.app.ui.screens.SiteSurveyScreen(
-                                viewModel = viewModel
-                            )
-                        }
-                        AppDestination.DETAILS -> {
-                            com.wavebalance.app.ui.screens.ApDetailScreen(
-                                viewModel = viewModel,
-                                onNavigateBack = { currentDestination = AppDestination.RADAR }
-                            )
-                        }
-                        AppDestination.OPTIMIZER -> {
-                            com.wavebalance.app.ui.screens.OptimizerScreen(
-                                viewModel = viewModel,
-                                onNavigateToRadar = { currentDestination = AppDestination.RADAR }
-                            )
+                    if (showSpeedDiagnostic) {
+                        com.wavebalance.app.ui.screens.SpeedDiagnosticScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { showSpeedDiagnostic = false }
+                        )
+                    } else {
+                        when (currentDestination) {
+                            AppDestination.DASHBOARD -> {
+                                DashboardScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToRadar = { currentDestination = AppDestination.RADAR },
+                                    onNavigateToOptimizer = { currentDestination = AppDestination.OPTIMIZER },
+                                    onNavigateToSurvey = { currentDestination = AppDestination.SURVEY },
+                                    onNavigateToSpeedDiagnostic = { showSpeedDiagnostic = true },
+                                    onNavigateToDetails = {
+                                        val activeBssid = activeConn?.bssid
+                                        val target = allAps.find { it.bssid.equals(activeBssid, ignoreCase = true) } ?: allAps.firstOrNull()
+                                        viewModel.selectAccessPoint(target)
+                                        currentDestination = AppDestination.DETAILS
+                                    }
+                                )
+                            }
+                            AppDestination.RADAR -> {
+                                WifiScanScreen(
+                                    viewModel = viewModel,
+                                    onRequestPermissions = {
+                                        showPermissionModal = false
+                                        permissionLauncher.launch(requiredPermissions)
+                                    },
+                                    onNavigateToDetails = { ap ->
+                                        viewModel.selectAccessPoint(ap)
+                                        currentDestination = AppDestination.DETAILS
+                                    }
+                                )
+                            }
+                            AppDestination.SURVEY -> {
+                                com.wavebalance.app.ui.screens.SiteSurveyScreen(
+                                    viewModel = viewModel
+                                )
+                            }
+                            AppDestination.DETAILS -> {
+                                com.wavebalance.app.ui.screens.ApDetailScreen(
+                                    viewModel = viewModel,
+                                    onNavigateBack = { currentDestination = AppDestination.RADAR }
+                                )
+                            }
+                            AppDestination.OPTIMIZER -> {
+                                com.wavebalance.app.ui.screens.OptimizerScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToRadar = { currentDestination = AppDestination.RADAR }
+                                )
+                            }
                         }
                     }
                 }
