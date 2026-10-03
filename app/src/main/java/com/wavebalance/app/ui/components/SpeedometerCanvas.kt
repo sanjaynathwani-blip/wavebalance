@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wavebalance.app.model.DiagnosticPhase
 import com.wavebalance.app.ui.theme.CardSurfaceSlate
+import com.wavebalance.app.ui.theme.ErrorRed
 import com.wavebalance.app.ui.theme.NeonCyan
 import com.wavebalance.app.ui.theme.PrimaryContainerBlue
 import com.wavebalance.app.ui.theme.SecondaryContainerEmerald
@@ -61,15 +62,14 @@ fun SpeedometerCanvas(
     currentPingMs: Float,
     phase: DiagnosticPhase,
     progress: Float,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Latency instead of speed: while pinging, and for a finished ping-only test
+    showLatency: Boolean = phase == DiagnosticPhase.PING_JITTER
 ) {
-    val targetFraction = when (phase) {
-        DiagnosticPhase.PING_JITTER -> (currentPingMs / 150f).coerceIn(0f, 1f)
-        DiagnosticPhase.DOWNLOAD,
-        DiagnosticPhase.UPLOAD,
-        DiagnosticPhase.BUFFERBLOAT,
-        DiagnosticPhase.COMPLETED -> speedToFraction(currentSpeedMbps)
-        DiagnosticPhase.IDLE -> 0f
+    val targetFraction = when {
+        phase == DiagnosticPhase.IDLE || phase == DiagnosticPhase.FAILED -> 0f
+        showLatency -> (currentPingMs / 150f).coerceIn(0f, 1f)
+        else -> speedToFraction(currentSpeedMbps)
     }
 
     val animatedFraction by animateFloatAsState(
@@ -216,16 +216,14 @@ fun SpeedometerCanvas(
                 .align(Alignment.Center)
                 .offset(y = 78.dp)
         ) {
-            val displayValue = when (phase) {
-                DiagnosticPhase.PING_JITTER -> String.format(Locale.US, "%.1f", currentPingMs)
-                DiagnosticPhase.IDLE -> "0.0"
+            val displayValue = when {
+                phase == DiagnosticPhase.IDLE -> "0.0"
+                phase == DiagnosticPhase.FAILED -> "--"
+                showLatency -> String.format(Locale.US, "%.1f", currentPingMs)
                 else -> String.format(Locale.US, "%.1f", currentSpeedMbps)
             }
 
-            val displayUnit = when (phase) {
-                DiagnosticPhase.PING_JITTER -> "ms LATENCY"
-                else -> "Mbps"
-            }
+            val displayUnit = if (showLatency) "ms LATENCY" else "Mbps"
 
             Text(
                 text = displayValue,
@@ -254,8 +252,8 @@ fun SpeedometerCanvas(
                     DiagnosticPhase.PING_JITTER -> TertiaryContainerAmber
                     DiagnosticPhase.DOWNLOAD -> NeonCyan
                     DiagnosticPhase.UPLOAD -> PrimaryContainerBlue
-                    DiagnosticPhase.BUFFERBLOAT -> TertiaryContainerAmber
                     DiagnosticPhase.COMPLETED -> SecondaryContainerEmerald
+                    DiagnosticPhase.FAILED -> ErrorRed
                 }
             )
         }

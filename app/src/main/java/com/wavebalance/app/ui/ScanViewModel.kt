@@ -3,6 +3,7 @@ package com.wavebalance.app.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.wavebalance.app.data.MLabNdt7Server
 import com.wavebalance.app.data.ScanStatus
 import com.wavebalance.app.data.WifiScanEngine
 import com.wavebalance.app.model.AccessPoint
@@ -278,74 +279,40 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         _surveyPoints.value = com.wavebalance.app.model.SiteSurveyEngine.generateSimulatedWalkthrough(ssid, bssid)
     }
 
-    fun startFullDiagnostic() {
-        diagnosticJob?.cancel()
-        _isDiagnosticRunning.value = true
-        diagnosticJob = viewModelScope.launch {
-            val rssi = activeConnection.value?.rssi ?: -65
-            val linkMbps = activeConnection.value?.linkSpeedMbps ?: 433
-            val simulated = isMockMode.value
-            try {
-                com.wavebalance.app.model.SpeedDiagnosticEngine.runDiagnosticFlow(
-                    activeRssi = rssi,
-                    theoreticalLinkMbps = linkMbps,
-                    isSimulated = simulated
-                ).collect { state ->
-                    _diagnosticState.value = state
-                    if (state.phase == com.wavebalance.app.model.DiagnosticPhase.COMPLETED) {
-                        _isDiagnosticRunning.value = false
-                    }
-                }
-            } finally {
-                _isDiagnosticRunning.value = false
-            }
-        }
+    private val speedTestPrefs = application.getSharedPreferences("speed_test", android.content.Context.MODE_PRIVATE)
+    private val appVersion: String = try {
+        application.packageManager.getPackageInfo(application.packageName, 0).versionName ?: "unknown"
+    } catch (e: android.content.pm.PackageManager.NameNotFoundException) {
+        "unknown"
     }
 
+    // M-Lab publishes full test results (including the IP address), so the user has to
+    // agree once before the first one
+    private val _mlabConsentGiven = MutableStateFlow(speedTestPrefs.getBoolean(KEY_MLAB_CONSENT, false))
+    val mlabConsentGiven: StateFlow<Boolean> = _mlabConsentGiven.asStateFlow()
+
+    fun giveMlabConsent() {
+        speedTestPrefs.edit().putBoolean(KEY_MLAB_CONSENT, true).apply()
+        _mlabConsentGiven.value = true
+    }
+
+    // The network test is real in simulated mode too: only the Wi-Fi scan data is simulated
+    fun startFullDiagnostic() {
+        check(_mlabConsentGiven.value) { "M-Lab consent is required before a full test" }
+        runDiagnostic(com.wavebalance.app.model.SpeedDiagnosticEngine.runSpeedTest(MLabNdt7Server(appVersion)))
+    }
+
+    // Latency probes only: no ndt7 test runs, so nothing is published
     fun startQuickPing() {
+        runDiagnostic(com.wavebalance.app.model.SpeedDiagnosticEngine.runPingTest(MLabNdt7Server(appVersion)))
+    }
+
+    private fun runDiagnostic(test: kotlinx.coroutines.flow.Flow<com.wavebalance.app.model.DiagnosticState>) {
         diagnosticJob?.cancel()
         _isDiagnosticRunning.value = true
         diagnosticJob = viewModelScope.launch {
-            val rssi = activeConnection.value?.rssi ?: -65
-            val simulated = isMockMode.value
             try {
-                _diagnosticState.value = com.wavebalance.app.model.DiagnosticState(
-                    phase = com.wavebalance.app.model.DiagnosticPhase.PING_JITTER,
-                    progress = 0.1f
-                )
-                val pings = mutableListOf<Double>()
-                for (i in 1..8) {
-                    delay(120)
-                    val realRtt = if (!simulated) com.wavebalance.app.model.SpeedDiagnosticEngine.probeSocketRtt("1.1.1.1", 53, 500) else null
-                    val rtt = realRtt ?: (16.0 + Math.random() * 5.0)
-                    pings.add(rtt)
-                    _diagnosticState.value = com.wavebalance.app.model.DiagnosticState(
-                        phase = com.wavebalance.app.model.DiagnosticPhase.PING_JITTER,
-                        progress = (i / 8f),
-                        currentPingMs = rtt.toFloat()
-                    )
-                }
-                val avgPing = pings.average()
-                val jitter = com.wavebalance.app.model.SpeedDiagnosticEngine.calculateJitter(pings)
-                val result = com.wavebalance.app.model.SpeedDiagnosticResult(
-                    unloadedPingMs = avgPing,
-                    jitterMs = jitter,
-                    downloadSpeedMbps = 0.0,
-                    peakDownloadMbps = 0.0,
-                    uploadSpeedMbps = 0.0,
-                    loadedPingMs = avgPing,
-                    bufferbloatDeltaMs = 0.0,
-                    bufferbloatGrade = com.wavebalance.app.model.BufferbloatGrade.A_PLUS,
-                    qosAssessment = com.wavebalance.app.model.SpeedDiagnosticEngine.evaluateQos(
-                        avgPing, jitter, 50.0, 20.0, com.wavebalance.app.model.BufferbloatGrade.A_PLUS
-                    )
-                )
-                _diagnosticState.value = com.wavebalance.app.model.DiagnosticState(
-                    phase = com.wavebalance.app.model.DiagnosticPhase.COMPLETED,
-                    progress = 1.0f,
-                    currentPingMs = avgPing.toFloat(),
-                    result = result
-                )
+                test.collect { state -> _diagnosticState.value = state }
             } finally {
                 _isDiagnosticRunning.value = false
             }
@@ -363,6 +330,7 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val MAX_SAMPLES = 20
+        private const val KEY_MLAB_CONSENT = "mlab_consent"
     }
 
     override fun onCleared() {

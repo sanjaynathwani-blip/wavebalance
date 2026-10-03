@@ -98,7 +98,7 @@ WaveBalance was architected and executed across 10 progressive phases:
 
 ### Phase 10: Real-Time Speed, Latency Jitter & Bufferbloat Diagnostic Engine
 - **Analog Speedometer Tachometer**: 240° logarithmic circular sweep canvas with Neon Cyan trail, radial ticks, glowing needle tip, and central digital readout.
-- **Multi-Stream Download & Ping Engine**: Real-time throughput benchmarking with unloaded baseline ping and loaded latency under load.
+- **M-Lab NDT7 Speed Engine**: Measures download and upload over one connection each against the nearest [Measurement Lab](https://www.measurementlab.net/) server, with idle ping and latency under load. M-Lab publishes each full test as open data, so the app asks for consent before the first one.
 - **Bufferbloat & SQM Analyzer**: Calculates $\Delta_{\text{bufferbloat}} = \text{RTT}_{\text{loaded}} - \text{RTT}_{\text{unloaded}}$ and assigns grades from A+ ($\le 5\text{ ms}$) through F ($> 200\text{ ms}$).
 - **Application QoS Suitability Matrix**: Live compatibility ratings for Competitive Gaming, 4K VoIP, 4K/8K Streaming, and Web Browsing.
 - **Dual-Curve Trajectory Graph**: Continuous time series displaying throughput (Cyan) and latency (Amber) simultaneously.
