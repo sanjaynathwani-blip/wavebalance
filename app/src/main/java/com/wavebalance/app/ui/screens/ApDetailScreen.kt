@@ -102,9 +102,10 @@ fun ApDetailScreen(
             // Adaptive Two-Pane Layout for Foldables / Tablets / Desktop Emulator
             Row(modifier = Modifier.fillMaxSize()) {
                 // Left Pane: AP List & Selector
+                // Wide enough for an SSID, the Active badge and the signal chip side by side
                 Card(
                     modifier = Modifier
-                        .width(320.dp)
+                        .width(400.dp)
                         .fillMaxHeight()
                         .padding(12.dp),
                     shape = RoundedCornerShape(16.dp),
@@ -307,7 +308,10 @@ fun ApDetailContent(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier.weight(1f, fill = false),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Box(
                                 modifier = Modifier
                                     .size(46.dp)
@@ -631,7 +635,10 @@ fun CollisionAlertCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = if (report.severity == InterferenceSeverity.CLEAN) Icons.Default.CheckCircle else Icons.Default.Warning,
                         contentDescription = null,

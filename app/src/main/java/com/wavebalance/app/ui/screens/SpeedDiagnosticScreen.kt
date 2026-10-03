@@ -66,6 +66,8 @@ import com.wavebalance.app.model.DiagnosticPhase
 import com.wavebalance.app.model.SpeedDiagnosticEngine
 import com.wavebalance.app.model.SpeedDiagnosticResult
 import com.wavebalance.app.ui.ScanViewModel
+import com.wavebalance.app.ui.adaptive.LocalWindowLayout
+import com.wavebalance.app.ui.adaptive.TwoColumnPage
 import com.wavebalance.app.ui.components.SpeedLatencyGraph
 import com.wavebalance.app.ui.components.SpeedometerCanvas
 import com.wavebalance.app.ui.theme.CardSurfaceSlate
@@ -120,211 +122,236 @@ fun SpeedDiagnosticScreen(
     val result = diagnosticState.result
     val theoreticalMbps = activeConn?.linkSpeedMbps ?: 433
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(DarkBackground)
-    ) {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
-            contentPadding = PaddingValues(bottom = 32.dp)
+    val linkHeader: @Composable () -> Unit = {
+        ActiveLinkHeaderCard(
+            ssid = activeConn?.cleanSsid ?: "Discovered Wi-Fi",
+            bssid = activeConn?.bssid ?: "00:00:00:00:00:00",
+            band = activeConn?.band?.label ?: "5 GHz",
+            rssi = activeConn?.rssi ?: -65,
+            theoreticalMbps = theoreticalMbps
+        )
+    }
+    val gaugeCard: @Composable () -> Unit = {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceContainer)
         ) {
-            // 1. Active Link Telemetry Card
-            item {
-                ActiveLinkHeaderCard(
-                    ssid = activeConn?.cleanSsid ?: "Discovered Wi-Fi",
-                    bssid = activeConn?.bssid ?: "00:00:00:00:00:00",
-                    band = activeConn?.band?.label ?: "5 GHz",
-                    rssi = activeConn?.rssi ?: -65,
-                    theoreticalMbps = theoreticalMbps
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                SpeedometerCanvas(
+                    currentSpeedMbps = diagnosticState.currentSpeedMbps,
+                    currentPingMs = diagnosticState.currentPingMs,
+                    phase = diagnosticState.phase,
+                    progress = diagnosticState.progress
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Progress Indicator
+                LinearProgressIndicator(
+                    progress = { diagnosticState.progress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = NeonCyan,
+                    trackColor = CardSurfaceSlate
                 )
             }
-
-            // 2. Analog Speedometer Tachometer
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurfaceContainer)
+        }
+    }
+    val actionControls: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (!isRunning) {
+                Button(
+                    onClick = { viewModel.startFullDiagnostic() },
+                    modifier = Modifier.weight(1.2f),
+                    colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Run",
+                        tint = DarkBackground,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (result == null) "Run Diagnostic" else "Retest",
+                        fontWeight = FontWeight.Bold,
+                        color = DarkBackground
+                    )
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.startQuickPing() },
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NetworkPing,
+                        contentDescription = "Ping Only",
+                        tint = PrimaryContainerBlue,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Ping Only", fontSize = 12.sp, color = PrimaryContainerBlue)
+                }
+
+                if (result != null) {
+                    Button(
+                        onClick = {
+                            exportSpeedReport(
+                                context = context,
+                                result = result,
+                                ssid = activeConn?.cleanSsid ?: "Wi-Fi",
+                                bssid = activeConn?.bssid ?: "00:00:00:00:00:00",
+                                theoreticalLinkMbps = theoreticalMbps
+                            )
+                        },
+                        modifier = Modifier.weight(0.9f),
+                        colors = ButtonDefaults.buttonColors(containerColor = CardSurfaceSlate),
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        SpeedometerCanvas(
-                            currentSpeedMbps = diagnosticState.currentSpeedMbps,
-                            currentPingMs = diagnosticState.currentPingMs,
-                            phase = diagnosticState.phase,
-                            progress = diagnosticState.progress
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp)
                         )
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        // Progress Indicator
-                        LinearProgressIndicator(
-                            progress = { diagnosticState.progress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(6.dp)
-                                .clip(RoundedCornerShape(3.dp)),
-                            color = NeonCyan,
-                            trackColor = CardSurfaceSlate
-                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Export", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
                     }
                 }
-            }
-
-            // 3. Action Controls
-            item {
-                Row(
+            } else {
+                Button(
+                    onClick = { viewModel.cancelDiagnostic() },
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    if (!isRunning) {
-                        Button(
-                            onClick = { viewModel.startFullDiagnostic() },
-                            modifier = Modifier.weight(1.2f),
-                            colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.PlayArrow,
-                                contentDescription = "Run",
-                                tint = DarkBackground,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = if (result == null) "Run Diagnostic" else "Retest",
-                                fontWeight = FontWeight.Bold,
-                                color = DarkBackground
-                            )
-                        }
-
-                        OutlinedButton(
-                            onClick = { viewModel.startQuickPing() },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.NetworkPing,
-                                contentDescription = "Ping Only",
-                                tint = PrimaryContainerBlue,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Ping Only", fontSize = 12.sp, color = PrimaryContainerBlue)
-                        }
-
-                        if (result != null) {
-                            Button(
-                                onClick = {
-                                    exportSpeedReport(
-                                        context = context,
-                                        result = result,
-                                        ssid = activeConn?.cleanSsid ?: "Wi-Fi",
-                                        bssid = activeConn?.bssid ?: "00:00:00:00:00:00",
-                                        theoreticalLinkMbps = theoreticalMbps
-                                    )
-                                },
-                                modifier = Modifier.weight(0.9f),
-                                colors = ButtonDefaults.buttonColors(containerColor = CardSurfaceSlate),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Share,
-                                    contentDescription = "Share",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Export", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    } else {
-                        Button(
-                            onClick = { viewModel.cancelDiagnostic() },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Stop,
-                                contentDescription = "Cancel",
-                                tint = Color.White
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Cancel Diagnostic", fontWeight = FontWeight.Bold, color = Color.White)
-                        }
-                    }
+                    Icon(
+                        imageVector = Icons.Default.Stop,
+                        contentDescription = "Cancel",
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Cancel Diagnostic", fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
-
-            // 4. Executive 4-Metric Grid (Ping, Jitter, Download, Upload)
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    MetricMiniCard(
-                        title = "PING LATENCY",
-                        value = if (result != null) "${String.format(Locale.US, "%.1f", result.unloadedPingMs)} ms" else "--",
-                        subtext = "Unloaded RTT",
-                        valueColor = SecondaryContainerEmerald,
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricMiniCard(
-                        title = "JITTER",
-                        value = if (result != null) "±${String.format(Locale.US, "%.1f", result.jitterMs)} ms" else "--",
-                        subtext = "Stability (σ)",
-                        valueColor = if (result != null && result.jitterMs > 15.0) TertiaryContainerAmber else NeonCyan,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    MetricMiniCard(
-                        title = "DOWNLOAD",
-                        value = if (result != null) "${String.format(Locale.US, "%.1f", result.downloadSpeedMbps)} Mbps" else "--",
-                        subtext = if (result != null) "Peak ${String.format(Locale.US, "%.1f", result.peakDownloadMbps)}" else "Goodput",
-                        valueColor = NeonCyan,
-                        modifier = Modifier.weight(1f)
-                    )
-                    MetricMiniCard(
-                        title = "UPLOAD",
-                        value = if (result != null) "${String.format(Locale.US, "%.1f", result.uploadSpeedMbps)} Mbps" else "--",
-                        subtext = "Uplink rate",
-                        valueColor = PrimaryContainerBlue,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+        }
+    }
+    val metricGrid: @Composable () -> Unit = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MetricMiniCard(
+                    title = "PING LATENCY",
+                    value = if (result != null) "${String.format(Locale.US, "%.1f", result.unloadedPingMs)} ms" else "--",
+                    subtext = "Unloaded RTT",
+                    valueColor = SecondaryContainerEmerald,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricMiniCard(
+                    title = "JITTER",
+                    value = if (result != null) "±${String.format(Locale.US, "%.1f", result.jitterMs)} ms" else "--",
+                    subtext = "Stability (σ)",
+                    valueColor = if (result != null && result.jitterMs > 15.0) TertiaryContainerAmber else NeonCyan,
+                    modifier = Modifier.weight(1f)
+                )
             }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                MetricMiniCard(
+                    title = "DOWNLOAD",
+                    value = if (result != null) "${String.format(Locale.US, "%.1f", result.downloadSpeedMbps)} Mbps" else "--",
+                    subtext = if (result != null) "Peak ${String.format(Locale.US, "%.1f", result.peakDownloadMbps)}" else "Goodput",
+                    valueColor = NeonCyan,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricMiniCard(
+                    title = "UPLOAD",
+                    value = if (result != null) "${String.format(Locale.US, "%.1f", result.uploadSpeedMbps)} Mbps" else "--",
+                    subtext = "Uplink rate",
+                    valueColor = PrimaryContainerBlue,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+    val telemetryGraph: @Composable () -> Unit = {
+        SpeedLatencyGraph(samples = diagnosticState.latestSamples)
+    }
 
-            // 5. Bufferbloat & Loaded Latency Card
-            if (result != null) {
-                item {
+    if (LocalWindowLayout.current.isExpanded) {
+        // Desktop: run the test on the left, read the results on the right
+        TwoColumnPage(
+            modifier = modifier.background(DarkBackground),
+            primaryWeight = 1f,
+            secondaryWeight = 1.2f,
+            primary = {
+                linkHeader()
+                gaugeCard()
+                actionControls()
+            },
+            secondary = {
+                metricGrid()
+                telemetryGraph()
+                if (result != null) {
                     BufferbloatAssessmentCard(result = result)
-                }
-
-                // 6. Quality of Service (QoS) Application Suitability Matrix
-                item {
                     QosApplicationMatrixCard(qos = result.qosAssessment)
                 }
             }
+        )
+        return
+    }
 
-            // 7. Real-Time Telemetry Graph
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(horizontal = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+        contentPadding = PaddingValues(bottom = 32.dp)
+    ) {
+        // 1. Active Link Telemetry Card
+        item { linkHeader() }
+
+        // 2. Analog Speedometer Tachometer
+        item { gaugeCard() }
+
+        // 3. Action Controls
+        item { actionControls() }
+
+        // 4. Executive 4-Metric Grid (Ping, Jitter, Download, Upload)
+        item { metricGrid() }
+
+        // 5. Bufferbloat & Loaded Latency Card
+        if (result != null) {
             item {
-                SpeedLatencyGraph(samples = diagnosticState.latestSamples)
+                BufferbloatAssessmentCard(result = result)
+            }
+
+            // 6. Quality of Service (QoS) Application Suitability Matrix
+            item {
+                QosApplicationMatrixCard(qos = result.qosAssessment)
             }
         }
+
+        // 7. Real-Time Telemetry Graph
+        item { telemetryGraph() }
     }
 }
 

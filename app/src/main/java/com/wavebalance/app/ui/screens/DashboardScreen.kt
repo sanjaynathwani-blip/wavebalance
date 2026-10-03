@@ -65,6 +65,8 @@ import com.wavebalance.app.model.ActiveConnectionInfo
 import com.wavebalance.app.model.ChannelWidth
 import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.ui.ScanViewModel
+import com.wavebalance.app.ui.adaptive.LocalWindowLayout
+import com.wavebalance.app.ui.adaptive.TwoColumnPage
 import com.wavebalance.app.ui.components.RfQualityGauge
 import com.wavebalance.app.ui.components.RoamingMonitorCard
 import com.wavebalance.app.ui.components.SpectrumMiniWaterfall
@@ -113,86 +115,112 @@ fun DashboardScreen(
             ?: allAps.firstOrNull { it.ssid.equals(activeConn?.cleanSsid, ignoreCase = true) }
     }
 
+    val heroCard: @Composable () -> Unit = {
+        HeroConnectionCard(
+            activeConn = activeConn,
+            connectedAp = connectedAp,
+            onQuickScan = { viewModel.triggerScan() },
+            onViewDetails = onNavigateToDetails
+        )
+    }
+    val performanceSection: @Composable () -> Unit = {
+        PerformanceGaugeSection(
+            score = rfQualityScore,
+            activeConn = activeConn,
+            onNavigateToSpeedDiagnostic = onNavigateToSpeedDiagnostic
+        )
+    }
+    val airspaceSummary: @Composable () -> Unit = {
+        SurroundingAirspaceTrio(
+            homeCount = homeCount,
+            neighborCount = neighborCount,
+            collisionCount = collisionCount,
+            onNavigateToRadar = onNavigateToRadar
+        )
+    }
+    val spectrumPreview: @Composable () -> Unit = {
+        SpectrumMiniWaterfall(
+            accessPoints = allAps,
+            activeBand = activeConn?.band ?: FrequencyBand.BAND_5_GHZ
+        )
+    }
+    val roamingMonitor: @Composable () -> Unit = {
+        RoamingMonitorCard(
+            activeConnection = activeConn,
+            stickyAlert = stickyAlert,
+            roamingHistory = roamingHistory,
+            onSimulateRoam = { viewModel.simulateRoamToCandidate() },
+            onSimulateWalk = { viewModel.simulateWalkDegradation() }
+        )
+    }
+    val actionCenter: @Composable () -> Unit = {
+        ActionCenterSection(
+            collisionCount = collisionCount,
+            onNavigateToRadar = {
+                viewModel.triggerScan()
+                onNavigateToRadar()
+            },
+            onNavigateToOptimizer = onNavigateToOptimizer,
+            onNavigateToSurvey = onNavigateToSurvey,
+            onNavigateToSpeedDiagnostic = onNavigateToSpeedDiagnostic,
+            onExportReport = { viewModel.shareAuditReport(context) }
+        )
+    }
+    val diagnosticTip: @Composable () -> Unit = {
+        DiagnosticTipCard(
+            activeConn = activeConn,
+            collisionCount = collisionCount
+        )
+    }
+
+    if (LocalWindowLayout.current.isExpanded) {
+        // Desktop: the connection and its spectrum on the left, the airspace and next steps on the right.
+        // The status pill is left out because the navigation panel already shows the connection.
+        TwoColumnPage(
+            modifier = modifier,
+            primary = {
+                heroCard()
+                airspaceSummary()
+                performanceSection()
+                spectrumPreview()
+            },
+            secondary = {
+                diagnosticTip()
+                roamingMonitor()
+                actionCenter()
+            }
+        )
+        return
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 1. Live Network Status Header Pill
-        item {
-            LiveStatusPill(activeConn = activeConn)
-        }
+        item { LiveStatusPill(activeConn = activeConn) }
 
         // 2. Hero Card: Connected Network Telemetry
-        item {
-            HeroConnectionCard(
-                activeConn = activeConn,
-                connectedAp = connectedAp,
-                onQuickScan = { viewModel.triggerScan() },
-                onViewDetails = onNavigateToDetails
-            )
-        }
+        item { heroCard() }
 
         // 3. Link & RF Performance Gauge Section
-        item {
-            PerformanceGaugeSection(
-                score = rfQualityScore,
-                activeConn = activeConn,
-                onNavigateToSpeedDiagnostic = onNavigateToSpeedDiagnostic
-            )
-        }
+        item { performanceSection() }
 
         // 4. Surrounding Airspace Summary Pills (3 columns)
-        item {
-            SurroundingAirspaceTrio(
-                homeCount = homeCount,
-                neighborCount = neighborCount,
-                collisionCount = collisionCount,
-                onNavigateToRadar = onNavigateToRadar
-            )
-        }
+        item { airspaceSummary() }
 
         // 5. Spectrum Congestion Waterfall Preview
-        item {
-            SpectrumMiniWaterfall(
-                accessPoints = allAps,
-                activeBand = activeConn?.band ?: FrequencyBand.BAND_5_GHZ
-            )
-        }
+        item { spectrumPreview() }
 
         // 6. Mesh Roaming & Sticky Client Walk-Test Monitor
-        item {
-            RoamingMonitorCard(
-                activeConnection = activeConn,
-                stickyAlert = stickyAlert,
-                roamingHistory = roamingHistory,
-                onSimulateRoam = { viewModel.simulateRoamToCandidate() },
-                onSimulateWalk = { viewModel.simulateWalkDegradation() }
-            )
-        }
+        item { roamingMonitor() }
 
         // 7. High-Affordance Action Center
-        item {
-            ActionCenterSection(
-                collisionCount = collisionCount,
-                onNavigateToRadar = {
-                    viewModel.triggerScan()
-                    onNavigateToRadar()
-                },
-                onNavigateToOptimizer = onNavigateToOptimizer,
-                onNavigateToSurvey = onNavigateToSurvey,
-                onNavigateToSpeedDiagnostic = onNavigateToSpeedDiagnostic,
-                onExportReport = { viewModel.shareAuditReport(context) }
-            )
-        }
+        item { actionCenter() }
 
         // 8. Contextual Diagnostic Tip
-        item {
-            DiagnosticTipCard(
-                activeConn = activeConn,
-                collisionCount = collisionCount
-            )
-        }
+        item { diagnosticTip() }
     }
 }
 
@@ -438,7 +466,10 @@ fun HeroConnectionCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Icon(
                             imageVector = Icons.Default.CellTower,
                             contentDescription = null,
@@ -534,7 +565,10 @@ fun PerformanceGaugeSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Speed,
                         contentDescription = null,
@@ -864,7 +898,10 @@ fun ActionCenterSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Speed,
                         contentDescription = null,
@@ -917,7 +954,10 @@ fun ActionCenterSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Layers,
                         contentDescription = null,
@@ -970,7 +1010,10 @@ fun ActionCenterSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.AutoFixHigh,
                         contentDescription = null,
@@ -1027,7 +1070,10 @@ fun ActionCenterSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(
                         imageVector = Icons.Default.Share,
                         contentDescription = null,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -207,13 +208,14 @@ fun SpeedometerCanvas(
             )
         }
 
-        // Center Digital Numerical Readout & Units
+        // Digital readout sits in the open bottom of the 240° dial, below the
+        // hub, so the needle and hub never cover the numbers
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = 78.dp)
         ) {
-            Spacer(modifier = Modifier.height(38.dp))
-
             val displayValue = when (phase) {
                 DiagnosticPhase.PING_JITTER -> String.format(Locale.US, "%.1f", currentPingMs)
                 DiagnosticPhase.IDLE -> "0.0"
