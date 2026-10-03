@@ -44,6 +44,8 @@ data class OptimizerRecommendation(
     val scoreDelta: Int,
     val eliminatedCollisions: Int,
     val channelScores: List<ChannelScore>,
+    // Radios in this band from the user's own router or mesh, left out of the scores
+    val ownRadiosIgnored: Int,
     val stepByStepGuide: List<RouterStep>,
     val routerDirectivesText: String,
     val reasonSummary: String
@@ -86,7 +88,10 @@ object ChannelOptimizerEngine {
         band: FrequencyBand,
         allAps: List<AccessPoint>,
         currentChannel: Int,
-        targetWidth: ChannelWidth = ChannelWidth.WIDTH_80
+        targetWidth: ChannelWidth = ChannelWidth.WIDTH_80,
+        // Lowercase BSSIDs from NetworkGroups.ownNetwork(). The user's own radios move with
+        // the channel change, so they never count against a candidate channel.
+        ownNetworkBssids: Set<String> = emptySet()
     ): OptimizerRecommendation {
         val candidateChannels = when (band) {
             FrequencyBand.BAND_2_4_GHZ -> CHANNELS_2_4_GHZ
@@ -95,7 +100,8 @@ object ChannelOptimizerEngine {
             FrequencyBand.UNKNOWN -> CHANNELS_5_GHZ
         }
 
-        val apsInBand = allAps.filter { it.band == band }
+        val (ownAps, apsInBand) = allAps.filter { it.band == band }
+            .partition { it.bssid.lowercase() in ownNetworkBssids }
 
         val scoredChannels = candidateChannels.map { ch ->
             evaluateChannel(ch, band, apsInBand, currentChannel, targetWidth)
@@ -161,6 +167,7 @@ object ChannelOptimizerEngine {
             scoreDelta = scoreDelta,
             eliminatedCollisions = eliminatedCollisions,
             channelScores = finalChannelScores,
+            ownRadiosIgnored = ownAps.size,
             stepByStepGuide = stepByStep,
             routerDirectivesText = directivesText,
             reasonSummary = reason
@@ -202,7 +209,7 @@ object ChannelOptimizerEngine {
                 maxRssi = maxOf(maxRssi ?: -120, ap.rssi)
             } else {
                 // Check envelope overlap for adjacent interference
-                val apEnv = ApMetricsCalculator.getFrequencyEnvelope(ap.frequencyMhz, ap.channelWidth)
+                val apEnv = ApMetricsCalculator.getFrequencyEnvelope(ap.centerFrequencyMhz, ap.channelWidth)
                 val overlapStart = max(candidateEnv.startMhz, apEnv.startMhz)
                 val overlapEnd = min(candidateEnv.endMhz, apEnv.endMhz)
 

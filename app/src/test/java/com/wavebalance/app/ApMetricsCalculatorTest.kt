@@ -95,4 +95,13 @@ class ApMetricsCalculatorTest {
         assertEquals(0, report.adjacentChannelCount)
         assertEquals(InterferenceSeverity.CLEAN, report.severity)
     }
+
+    @Test
+    fun testInterferenceAnalysis_ignoresTheApsOwnNetwork() {
+        val report = ApMetricsCalculator.analyzeInterference(TestMesh.connected, TestMesh.all)
+
+        // The guest SSID on the same radio and the far mesh node share channel 149 but
+        // belong to the same mesh; only the neighbour competes for the channel
+        assertEquals(listOf(TestMesh.sameVendorNeighbor), report.coChannelAps)
+    }
 }

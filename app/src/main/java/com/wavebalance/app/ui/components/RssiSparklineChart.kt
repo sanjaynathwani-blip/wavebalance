@@ -44,35 +44,14 @@ import com.wavebalance.app.ui.theme.TertiaryContainerAmber
 fun RssiSparklineChart(
     samples: List<RssiSample>,
     currentRssi: Int,
+    subtitle: String,
     modifier: Modifier = Modifier
 ) {
-    // Generate synthetic smooth history if samples are sparse (e.g. at initial startup)
-    val effectiveSamples = remember(samples, currentRssi) {
-        if (samples.size >= 3) {
-            samples
-        } else {
-            // Generate realistic 15 points around currentRssi
-            val now = System.currentTimeMillis()
-            (0 until 15).map { i ->
-                val offsetSec = (14 - i) * 4 // every 4 seconds
-                val variance = when (i % 5) {
-                    0 -> 0
-                    1 -> -1
-                    2 -> 1
-                    3 -> -2
-                    else -> 1
-                }
-                RssiSample(
-                    timestamp = now - (offsetSec * 1000L),
-                    rssi = (currentRssi + variance).coerceIn(-95, -30)
-                )
-            }
-        }
+    // Only real samples are drawn; nothing is filled in while history builds up
+    val stats = remember(samples, currentRssi) {
+        ApMetricsCalculator.computeRssiStats(samples, currentRssi)
     }
-
-    val stats = remember(effectiveSamples, currentRssi) {
-        ApMetricsCalculator.computeRssiStats(effectiveSamples, currentRssi)
-    }
+    val hasJitter = samples.size >= 3
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -93,27 +72,31 @@ fun RssiSparklineChart(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Rolling 60-second RF power monitor",
+                        text = subtitle,
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
+                val jitterColor = when {
+                    !hasJitter -> MaterialTheme.colorScheme.onSurfaceVariant
+                    stats.jitter <= 2.0 -> SecondaryContainerEmerald
+                    else -> TertiaryContainerAmber
+                }
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = if (stats.jitter <= 2.0) SecondaryContainerEmerald.copy(alpha = 0.15f)
-                    else TertiaryContainerAmber.copy(alpha = 0.15f)
+                    color = jitterColor.copy(alpha = 0.15f)
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Jitter: ±${stats.jitter} dB",
+                            text = if (hasJitter) "Jitter: ±${stats.jitter} dB" else "Collecting samples…",
                             fontFamily = FontFamily.Monospace,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = if (stats.jitter <= 2.0) SecondaryContainerEmerald else TertiaryContainerAmber
+                            color = jitterColor
                         )
                     }
                 }
@@ -168,15 +151,15 @@ fun RssiSparklineChart(
                         pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 6f), 0f)
                     )
 
-                    if (effectiveSamples.isEmpty()) return@Canvas
+                    if (samples.isEmpty()) return@Canvas
 
-                    // Sort samples by timestamp
-                    val sorted = effectiveSamples.sortedBy { it.timestamp }
-                    val pointCount = sorted.size
-                    val stepX = if (pointCount > 1) w / (pointCount - 1) else w
+                    // Place samples by time, since scan-based samples arrive irregularly
+                    val sorted = samples.sortedBy { it.timestamp }
+                    val firstTime = sorted.first().timestamp
+                    val span = (sorted.last().timestamp - firstTime).coerceAtLeast(1L)
 
-                    val points = sorted.mapIndexed { index, sample ->
-                        val x = index * stepX
+                    val points = sorted.map { sample ->
+                        val x = if (sorted.size == 1) w else (sample.timestamp - firstTime).toFloat() / span * w
                         val y = rssiToY(sample.rssi.toFloat())
                         Offset(x, y)
                     }
@@ -262,7 +245,7 @@ fun RssiSparklineChart(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "60s ago",
+                    text = samples.minOfOrNull { it.timestamp }?.let { formatAge(System.currentTimeMillis() - it) } ?: "No samples yet",
                     fontSize = 10.sp,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -347,5 +330,14 @@ private fun StatPill(
                 color = color
             )
         }
+    }
+}
+
+private fun formatAge(ageMs: Long): String {
+    val seconds = (ageMs / 1000).coerceAtLeast(0)
+    return when {
+        seconds < 90 -> "${seconds}s ago"
+        seconds < 90 * 60 -> "${seconds / 60} min ago"
+        else -> "${seconds / 3600} h ago"
     }
 }

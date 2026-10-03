@@ -57,6 +57,8 @@ fun RoamingMonitorCard(
     roamingHistory: List<RoamingEvent>,
     onSimulateRoam: () -> Unit = {},
     onSimulateWalk: () -> Unit = {},
+    // Simulation buttons rewrite the connection data, so they only appear with simulated data
+    showSimulationControls: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -157,8 +159,8 @@ fun RoamingMonitorCard(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                                     lineHeight = 16.sp
                                 )
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Button(
+                                if (showSimulationControls) Spacer(modifier = Modifier.height(10.dp))
+                                if (showSimulationControls) Button(
                                     onClick = onSimulateRoam,
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = TertiaryContainerAmber,
@@ -186,7 +188,7 @@ fun RoamingMonitorCard(
             }
 
             // Walk Simulation Trigger
-            if (stickyAlert == null || !stickyAlert.isSticky) {
+            if (showSimulationControls && (stickyAlert == null || !stickyAlert.isSticky)) {
                 Spacer(modifier = Modifier.height(10.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),

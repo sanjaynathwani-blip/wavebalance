@@ -1,121 +1,85 @@
 package com.wavebalance.app.model
 
+import java.io.IOException
+import java.io.InputStream
+
+/**
+ * Names the vendor of a BSSID from the IEEE OUI registry, which ships as
+ * assets/oui_registry.tsv (regenerate it with tools/generate_oui_registry.py).
+ */
 object WifiVendorLookup {
 
-    private val ouiPrefixMap = mapOf(
-        // Google / Nest
-        "70:3A:0E" to "Google",
-        "D4:F5:47" to "Google Nest",
-        "E4:F0:42" to "Google",
-        "54:60:09" to "Google",
-        "94:DB:56" to "Google",
-        "F4:F5:D8" to "Google",
-        "8C:C8:CD" to "Google Nest",
-        "30:FD:38" to "Google",
+    const val REGISTRY_ASSET = "oui_registry.tsv"
 
-        // Apple
-        "AC:BC:32" to "Apple",
-        "00:1E:58" to "Apple",
-        "F0:18:98" to "Apple",
-        "38:CA:DA" to "Apple",
-        "A4:83:E7" to "Apple",
-        "BC:92:6B" to "Apple",
-        "DC:2B:61" to "Apple",
-        "F4:37:B7" to "Apple",
+    @Volatile
+    private var openRegistry: (() -> InputStream)? = null
 
-        // Netgear
-        "C4:41:1E" to "Netgear",
-        "20:E5:2A" to "Netgear",
-        "00:26:F2" to "Netgear Nighthawk",
-        "9C:3D:CF" to "Netgear Orbi",
-        "B0:39:56" to "Netgear",
-        "E0:46:9A" to "Netgear",
+    // Keyed by the first three octets as a 24-bit number; null until read
+    @Volatile
+    private var registry: Map<Int, String>? = null
 
-        // Cisco / Meraki
-        "00:1A:11" to "Cisco Systems",
-        "F0:9F:C2" to "Cisco Meraki",
-        "0C:8D:DB" to "Cisco Meraki",
-        "18:64:72" to "Cisco Systems",
-        "88:F0:31" to "Cisco Meraki",
+    /**
+     * Sets where the registry is read from. It is read on the first lookup
+     * or on [preload]; lookups before this name no vendor.
+     */
+    fun useRegistry(open: () -> InputStream) {
+        synchronized(this) {
+            openRegistry = open
+            registry = null
+        }
+    }
 
-        // Ubiquiti Networks (UniFi)
-        "A4:2B:B0" to "Ubiquiti UniFi",
-        "E0:63:DA" to "Ubiquiti Networks",
-        "80:2A:A8" to "Ubiquiti UniFi",
-        "78:45:58" to "Ubiquiti Networks",
-        "B4:FB:E4" to "Ubiquiti UniFi",
-        "F4:92:BF" to "Ubiquiti Networks",
+    /** Reads the registry now, so the first lookup on the UI thread doesn't have to. */
+    fun preload() {
+        registry()
+    }
 
-        // TP-Link
-        "50:C7:BF" to "TP-Link",
-        "74:DA:38" to "TP-Link",
-        "B0:BE:76" to "TP-Link Deco",
-        "AC:84:C6" to "TP-Link",
-        "00:31:92" to "TP-Link",
-        "98:42:65" to "TP-Link Archer",
+    private fun registry(): Map<Int, String> {
+        registry?.let { return it }
+        synchronized(this) {
+            registry?.let { return it }
+            val open = openRegistry ?: return emptyMap()
+            // Vendor names are a nicety: if the registry can't be read, name no vendors
+            // rather than fail, and don't retry on every lookup
+            val parsed = try {
+                open().use(::parseRegistry)
+            } catch (e: IOException) {
+                emptyMap()
+            }
+            return parsed.also { registry = it }
+        }
+    }
 
-        // ASUSTeK
-        "24:4B:FE" to "ASUS ROG/ZenWiFi",
-        "58:D9:C3" to "ASUSTeK Computer",
-        "04:D9:F5" to "ASUSTeK Computer",
-        "AC:9E:17" to "ASUSTeK Computer",
+    internal fun parseRegistry(input: InputStream): Map<Int, String> {
+        val map = HashMap<Int, String>(48_000)
+        input.bufferedReader().forEachLine { line ->
+            val tab = line.indexOf('\t')
+            if (tab == 6) {
+                line.substring(0, 6).toIntOrNull(16)?.let { map[it] = line.substring(7) }
+            }
+        }
+        return map
+    }
 
-        // Amazon / Eero
-        "F4:39:09" to "eero (Amazon)",
-        "44:65:0D" to "Amazon eero Pro",
-        "CC:F4:11" to "eero (Amazon)",
-        "50:DC:E7" to "Amazon eero",
-
-        // Samsung
-        "BC:D0:74" to "Samsung Electronics",
-        "94:65:2D" to "Samsung",
-        "34:82:C5" to "Samsung",
-        "40:4E:36" to "Samsung SmartThings",
-
-        // Broadcom / Qualcomm / Intel / Mediatek
-        "00:10:18" to "Broadcom",
-        "00:03:7F" to "Qualcomm Atheros",
-        "00:15:00" to "Intel Corporation",
-        "8C:FD:F0" to "Intel Wi-Fi",
-        "00:0C:E7" to "MediaTek",
-
-        // Linksys / Belkin
-        "00:14:BF" to "Linksys",
-        "C0:56:27" to "Linksys Velop",
-        "14:91:82" to "Belkin",
-
-        // Synology
-        "00:11:32" to "Synology",
-
-        // Raspberry Pi
-        "B8:27:EB" to "Raspberry Pi",
-        "DC:A6:32" to "Raspberry Pi",
-        "E4:5F:01" to "Raspberry Pi"
-    )
+    // Locally administered addresses aren't registered to a vendor. Routers use them for
+    // their extra virtual networks (guest SSIDs, mesh backhaul); phones use them for MAC randomization.
+    const val LOCALLY_ADMINISTERED = "Locally administered (virtual AP)"
 
     fun getVendor(bssid: String): String {
-        if (bssid.isBlank() || bssid == "00:00:00:00:00:00") return "Unknown OEM"
+        if (bssid.isBlank() || bssid == "00:00:00:00:00:00") return "Unknown vendor"
 
-        val cleaned = bssid.trim().uppercase()
-        // Extract first 3 octets (e.g. "C4:41:1E")
-        val parts = cleaned.split(":")
+        val parts = bssid.trim().split(":")
         if (parts.size >= 3) {
-            val prefix = "${parts[0]}:${parts[1]}:${parts[2]}"
-            ouiPrefixMap[prefix]?.let { return it }
-
-            // Check if it's locally administered (randomized MAC address)
-            // The second least significant bit of the first byte is 1 for locally administered addresses
-            try {
-                val firstByte = parts[0].toInt(16)
-                if ((firstByte and 0x02) != 0) {
-                    return "Private / Randomized MAC"
-                }
-            } catch (e: Exception) {
-                // Ignore parse errors
+            val oui = (parts[0] + parts[1] + parts[2]).toIntOrNull(16)
+            if (oui != null) {
+                // The locally administered bit (0x02 of the first octet) means the address
+                // isn't registered, even if the remaining bits happen to match an OUI
+                if ((oui shr 16) and 0x02 != 0) return LOCALLY_ADMINISTERED
+                registry()[oui]?.let { return it }
             }
         }
 
-        return "Standard Wi-Fi OEM"
+        return "Unknown vendor"
     }
 
     fun isRandomizedMac(bssid: String): Boolean {

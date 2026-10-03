@@ -103,8 +103,9 @@ fun SiteSurveyScreen(
     }
 
     // Estimated signal at cursor
+    // No estimate until there is at least one measured pin to interpolate from
     val cursorEstimatedRssi = remember(cursorX, cursorY, surveyPoints) {
-        SiteSurveyEngine.interpolateRssi(cursorX, cursorY, surveyPoints).toInt()
+        if (surveyPoints.isEmpty()) null else SiteSurveyEngine.interpolateRssi(cursorX, cursorY, surveyPoints).toInt()
     }
 
     LazyColumn(
@@ -127,28 +128,23 @@ fun SiteSurveyScreen(
                 cursorX = cursorX,
                 cursorY = cursorY,
                 estimatedRssiAtCursor = cursorEstimatedRssi,
-                onPinMeasurement = {
-                    val conn = activeConn
-                    val rssiToPin = conn?.rssi ?: -65
-                    val ssidToPin = conn?.cleanSsid ?: "Simulated_Wi-Fi"
-                    val bssidToPin = conn?.bssid ?: "aa:bb:cc:dd:ee:ff"
-                    val freq = conn?.frequencyMhz ?: 5180
-                    val ch = conn?.channel ?: 36
-                    val band = conn?.band ?: FrequencyBand.BAND_5_GHZ
-
-                    viewModel.addSurveyPoint(
-                        SurveyPoint(
-                            x = cursorX,
-                            y = cursorY,
-                            roomName = currentRoom,
-                            bssid = bssidToPin,
-                            ssid = ssidToPin,
-                            rssi = rssiToPin,
-                            frequencyMhz = freq,
-                            channel = ch,
-                            band = band
+                // A pin records the live connection; without one there is nothing real to record
+                onPinMeasurement = activeConn?.let { conn ->
+                    {
+                        viewModel.addSurveyPoint(
+                            SurveyPoint(
+                                x = cursorX,
+                                y = cursorY,
+                                roomName = currentRoom,
+                                bssid = conn.bssid,
+                                ssid = conn.cleanSsid,
+                                rssi = conn.rssi,
+                                frequencyMhz = conn.frequencyMhz,
+                                channel = conn.channel,
+                                band = conn.band
+                            )
                         )
-                    )
+                    }
                 }
             )
         }
@@ -362,8 +358,8 @@ private fun SurveyTelemetryHud(
     currentRoom: String,
     cursorX: Float,
     cursorY: Float,
-    estimatedRssiAtCursor: Int,
-    onPinMeasurement: () -> Unit
+    estimatedRssiAtCursor: Int?,
+    onPinMeasurement: (() -> Unit)?
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -437,7 +433,7 @@ private fun SurveyTelemetryHud(
                         color = NeonCyan
                     )
                     Text(
-                        text = "Grid (${String.format(Locale.US, "%.2f", cursorX)}, ${String.format(Locale.US, "%.2f", cursorY)}) • Est: $estimatedRssiAtCursor dBm",
+                        text = "Grid (${String.format(Locale.US, "%.2f", cursorX)}, ${String.format(Locale.US, "%.2f", cursorY)}) • " + (estimatedRssiAtCursor?.let { "Est: $it dBm" } ?: "No pins yet"),
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -445,7 +441,8 @@ private fun SurveyTelemetryHud(
                 }
 
                 Button(
-                    onClick = onPinMeasurement,
+                    onClick = { onPinMeasurement?.invoke() },
+                    enabled = onPinMeasurement != null,
                     colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
                     shape = RoundedCornerShape(10.dp)
                 ) {

@@ -62,6 +62,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wavebalance.app.model.AccessPoint
+import com.wavebalance.app.model.ApCapabilities
 import com.wavebalance.app.model.ApMetricsCalculator
 import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.model.InterferenceReport
@@ -90,9 +91,13 @@ fun ApDetailScreen(
 
     // Determine target AP: explicitly selected, or active connection, or strongest AP in airspace
     val targetAp = remember(selectedApState, allAps, activeConn) {
-        selectedApState
+        val ap = selectedApState
             ?: allAps.find { it.isConnected }
             ?: allAps.firstOrNull()
+        // A scan's RSSI for the connected AP lags the live connection reading, which the
+        // signal graph uses, so show the live value to keep the header and graph in agreement
+        val conn = activeConn
+        if (ap != null && conn != null && ap.bssid.equals(conn.bssid, ignoreCase = true)) ap.copy(rssi = conn.rssi) else ap
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -213,12 +218,13 @@ fun ApDetailContent(
         WifiVendorLookup.getVendor(ap.bssid)
     }
 
-    val envelope = remember(ap.frequencyMhz, ap.channelWidth) {
-        ApMetricsCalculator.getFrequencyEnvelope(ap.frequencyMhz, ap.channelWidth)
+    val envelope = remember(ap.centerFrequencyMhz, ap.channelWidth) {
+        ApMetricsCalculator.getFrequencyEnvelope(ap.centerFrequencyMhz, ap.channelWidth)
     }
 
-    val maxPhySpeed = remember(ap.standard, ap.channelWidth) {
-        ApMetricsCalculator.calculateTheoreticalMaxPhy(ap.standard, ap.channelWidth)
+    val advertisedStreams = ap.advertised?.maxSpatialStreams
+    val maxPhySpeed = remember(ap.standard, ap.channelWidth, advertisedStreams) {
+        ApMetricsCalculator.calculateTheoreticalMaxPhy(ap.standard, ap.channelWidth, advertisedStreams ?: 2)
     }
 
     LazyColumn(
@@ -430,18 +436,6 @@ fun ApDetailContent(
                                 )
                             }
                         }
-                        Surface(
-                            shape = CircleShape,
-                            color = DarkSurfaceContainerHigh
-                        ) {
-                            Text(
-                                text = "SNR: ${ap.snr} dB",
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
                     }
                 }
             }
@@ -451,7 +445,9 @@ fun ApDetailContent(
         item {
             RssiSparklineChart(
                 samples = samples,
-                currentRssi = ap.rssi
+                currentRssi = ap.rssi,
+                subtitle = if (ap.isConnected) "Live connection signal, sampled every 3 s"
+                else "One sample per Wi-Fi scan (Android allows a few per minute)"
             )
         }
 
@@ -507,15 +503,15 @@ fun ApDetailContent(
                     )
                     DetailMetricRow(
                         label = "Center Frequency (fc0)",
-                        value = "${envelope.centerMhz} MHz"
+                        value = "${ap.centerFrequencyMhz} MHz"
                     )
                     DetailMetricRow(
                         label = "Spatial Streams (MIMO)",
-                        value = "2x2 MIMO Multi-Stream"
+                        value = advertisedValue(ap) { it.maxSpatialStreams?.let { n -> "Up to $n (advertised)" } }
                     )
                     DetailMetricRow(
                         label = "Theoretical Max PHY Speed",
-                        value = "$maxPhySpeed Mbps",
+                        value = if (advertisedStreams != null) "$maxPhySpeed Mbps" else "$maxPhySpeed Mbps (assumes 2 streams)",
                         valueColor = PrimaryContainerBlue
                     )
                 }
@@ -553,16 +549,18 @@ fun ApDetailContent(
                         valueColor = if (ap.securityType.contains("WPA3")) SecondaryContainerEmerald else MaterialTheme.colorScheme.onSurface
                     )
                     DetailMetricRow(
-                        label = "Beacon Interval",
-                        value = "100 TU (~102.4 ms)"
-                    )
-                    DetailMetricRow(
-                        label = "DTIM Period",
-                        value = "1 (Low Latency Delivery)"
-                    )
-                    DetailMetricRow(
                         label = "Protected Mgmt Frames (PMF)",
-                        value = if (ap.securityType.contains("WPA3")) "Required (802.11w)" else "Optional / Supported"
+                        value = advertisedValue(ap) { it.pmf?.label }
+                    )
+                    DetailMetricRow(
+                        label = "Fast Roaming (802.11k/v/r)",
+                        value = advertisedValue(ap) { caps ->
+                            listOfNotNull(
+                                "k".takeIf { caps.radioMeasurement },
+                                "v".takeIf { caps.bssTransition },
+                                "r".takeIf { caps.fastTransition }
+                            ).joinToString(" / ") { "802.11$it" }.ifEmpty { "None advertised" }
+                        }
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
@@ -581,11 +579,8 @@ fun ApDetailContent(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         val flags = remember(ap.capabilities) {
-                            if (ap.capabilities.isNotBlank()) {
-                                ap.capabilities.replace("[", "").split("]").filter { it.isNotBlank() }
-                            } else {
-                                listOf("ESS", "WMM", "RSN", "SHORT-GI", "HT40")
-                            }
+                            ap.capabilities.replace("[", "").split("]").filter { it.isNotBlank() }
+                                .ifEmpty { listOf("None advertised") }
                         }
                         flags.forEach { flag ->
                             Surface(
@@ -838,4 +833,13 @@ fun EmptyApDetailPlaceholder(
             }
         }
     }
+}
+
+/**
+ * Formats a value from the AP's advertised information elements, explaining why it
+ * is missing: Android only exposes them from Android 11.
+ */
+private fun advertisedValue(ap: AccessPoint, value: (ApCapabilities) -> String?): String {
+    val caps = ap.advertised ?: return "Needs Android 11+"
+    return value(caps) ?: "Not advertised"
 }

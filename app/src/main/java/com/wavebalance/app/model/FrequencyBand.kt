@@ -28,6 +28,19 @@ enum class FrequencyBand(val label: String, val minFreqMhz: Int, val maxFreqMhz:
             }
         }
 
+        /**
+         * Channel-number position of any frequency inside a band, keeping the fraction,
+         * so the centre of a bonded channel can be placed between channel numbers.
+         */
+        fun frequencyToChannelPosition(freqMhz: Int, band: FrequencyBand): Float {
+            return when (band) {
+                BAND_2_4_GHZ -> if (freqMhz == 2484) 14f else (freqMhz - 2407) / 5f
+                BAND_5_GHZ -> (freqMhz - 5000) / 5f
+                BAND_6_GHZ -> (freqMhz - 5950) / 5f
+                UNKNOWN -> frequencyToChannel(freqMhz).toFloat()
+            }
+        }
+
         fun channelToFrequency(channel: Int, band: FrequencyBand): Int {
             return when (band) {
                 BAND_2_4_GHZ -> if (channel == 14) 2484 else 2407 + (channel * 5)

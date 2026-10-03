@@ -216,12 +216,6 @@ fun AccessPointItemCard(
                     color = MaterialTheme.colorScheme.outline
                 )
 
-                // SNR Chip
-                TagPill(
-                    text = "SNR: ${ap.snr} dB",
-                    color = SecondaryContainerEmerald
-                )
-
                 // Security Chip
                 TagPill(
                     text = ap.securityType,

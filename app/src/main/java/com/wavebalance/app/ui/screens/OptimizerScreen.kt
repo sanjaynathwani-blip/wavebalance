@@ -94,6 +94,7 @@ fun OptimizerScreen(
     val activeConn by viewModel.activeConnection.collectAsState()
     val allAps by viewModel.filteredAccessPoints.collectAsState()
     val isMockMode by viewModel.isMockMode.collectAsState()
+    val ownNetworkBssids by viewModel.ownNetworkBssids.collectAsState()
 
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
@@ -124,12 +125,13 @@ fun OptimizerScreen(
         allAps.find { it.isConnected } ?: allAps.firstOrNull { it.channel == currentChannel }
     }
 
-    val recommendation = remember(selectedBand, allAps, currentChannel, selectedWidth) {
+    val recommendation = remember(selectedBand, allAps, currentChannel, selectedWidth, ownNetworkBssids) {
         com.wavebalance.app.model.ChannelOptimizerEngine.evaluateBand(
             band = selectedBand,
             allAps = allAps,
             currentChannel = currentChannel,
-            targetWidth = selectedWidth
+            targetWidth = selectedWidth,
+            ownNetworkBssids = ownNetworkBssids
         )
     }
 
@@ -244,7 +246,7 @@ fun OptimizerScreen(
                 )
                 migrationApplied = true
                 Toast.makeText(context, "Applied migration to Channel ${recommendation.recommendedChannel} in simulation!", Toast.LENGTH_SHORT).show()
-            }
+            }.takeIf { isMockMode }
         )
     }
     val matrixHeader: @Composable () -> Unit = {
@@ -445,13 +447,27 @@ private fun OptimizationImpactHeroCard(
                 shape = RoundedCornerShape(12.dp),
                 color = DarkSurfaceContainerHigh
             ) {
-                Text(
-                    text = recommendation.reasonSummary,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    lineHeight = 18.sp,
-                    modifier = Modifier.padding(12.dp)
-                )
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = recommendation.reasonSummary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        lineHeight = 18.sp
+                    )
+                    val ownRadios = recommendation.ownRadiosIgnored
+                    if (ownRadios > 0) {
+                        Text(
+                            text = "Not counting $ownRadios ${if (ownRadios == 1) "radio" else "radios"} from your own network: " +
+                                "they change channel along with your router.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            lineHeight = 18.sp
+                        )
+                    }
+                }
             }
         }
     }
@@ -503,7 +519,8 @@ private fun RouterDirectivesCard(
     recommendation: OptimizerRecommendation,
     migrationApplied: Boolean,
     onCopy: () -> Unit,
-    onSimulateMigration: () -> Unit
+    // Null outside simulated data: migrating would overwrite real readings with made-up ones
+    onSimulateMigration: (() -> Unit)?
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -583,7 +600,7 @@ private fun RouterDirectivesCard(
                     Text("Copy Setup", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
 
-                OutlinedButton(
+                if (onSimulateMigration != null) OutlinedButton(
                     onClick = onSimulateMigration,
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(12.dp),
