@@ -40,6 +40,19 @@ object MockWifiDataProvider {
                 isUserTaggedHome = true
             ),
             AccessPoint(
+                bssid = "00:1A:2B:3C:4D:99",
+                ssid = "WaveBalance_HQ",
+                rssi = -48,
+                frequencyMhz = 5745,
+                channel = 149,
+                band = FrequencyBand.BAND_5_GHZ,
+                standard = WifiStandard.WIFI_6,
+                channelWidth = ChannelWidth.WIDTH_80,
+                capabilities = "[WPA3-SAE-CCMP][RSN-SAE-CCMP][ESS]",
+                isConnected = false,
+                isUserTaggedHome = true
+            ),
+            AccessPoint(
                 bssid = "00:1A:2B:3C:4D:5F",
                 ssid = "WaveBalance_HQ_IoT",
                 rssi = -55,

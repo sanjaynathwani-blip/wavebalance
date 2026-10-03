@@ -110,6 +110,34 @@ class WifiScanEngine(private val context: Context) {
         }
     }
 
+    fun simulateRoam(candidateBssid: String, candidateChannel: Int, candidateBand: FrequencyBand, candidateRssi: Int) {
+        val active = _activeConnection.value ?: return
+        val newFreq = FrequencyBand.channelToFrequency(candidateChannel, candidateBand)
+        _activeConnection.value = active.copy(
+            bssid = candidateBssid,
+            channel = candidateChannel,
+            band = candidateBand,
+            frequencyMhz = newFreq,
+            rssi = candidateRssi
+        )
+        _accessPoints.value = _accessPoints.value.map { ap ->
+            when {
+                ap.bssid.equals(candidateBssid, ignoreCase = true) -> ap.copy(isConnected = true, rssi = candidateRssi)
+                ap.bssid.equals(active.bssid, ignoreCase = true) -> ap.copy(isConnected = false)
+                else -> ap
+            }
+        }
+    }
+
+    fun simulateWalkDegradation() {
+        val active = _activeConnection.value ?: return
+        // Drop active RSSI to -78 dBm to trigger sticky client syndrome
+        _activeConnection.value = active.copy(rssi = -78)
+        _accessPoints.value = _accessPoints.value.map { ap ->
+            if (ap.isConnected) ap.copy(rssi = -78) else ap
+        }
+    }
+
     fun toggleHomeTag(bssid: String) {
         val current = _taggedHomeBssids.value.toMutableSet()
         if (current.contains(bssid)) {

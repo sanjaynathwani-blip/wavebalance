@@ -40,6 +40,18 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private val _rssiHistory = MutableStateFlow<Map<String, List<RssiSample>>>(emptyMap())
     val rssiHistory: StateFlow<Map<String, List<RssiSample>>> = _rssiHistory.asStateFlow()
 
+    private val _roamingHistory = MutableStateFlow<List<com.wavebalance.app.model.RoamingEvent>>(emptyList())
+    val roamingHistory: StateFlow<List<com.wavebalance.app.model.RoamingEvent>> = _roamingHistory.asStateFlow()
+
+    private var lastActiveConn: ActiveConnectionInfo? = null
+
+    val stickyClientAlert: StateFlow<com.wavebalance.app.model.StickyClientAlert?> = combine(
+        activeConnection,
+        engine.accessPoints
+    ) { conn, aps ->
+        com.wavebalance.app.model.RoamingMonitorEngine.evaluateStickyClient(conn, aps)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val filteredAccessPoints: StateFlow<List<AccessPoint>> = combine(
         engine.accessPoints,
         _selectedBandFilter,
@@ -61,6 +73,20 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Start background sampling loop for historical sparklines
         startRssiSampler()
+
+        // Monitor roaming handovers
+        viewModelScope.launch {
+            activeConnection.collect { current ->
+                val prev = lastActiveConn
+                if (prev != null && current != null) {
+                    val event = com.wavebalance.app.model.RoamingMonitorEngine.detectRoamingTransition(prev, current)
+                    if (event != null) {
+                        _roamingHistory.value = _roamingHistory.value + event
+                    }
+                }
+                lastActiveConn = current
+            }
+        }
     }
 
     private fun startRssiSampler() {
@@ -146,6 +172,39 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     fun simulateChannelMigration(newChannel: Int, newWidth: com.wavebalance.app.model.ChannelWidth = com.wavebalance.app.model.ChannelWidth.WIDTH_80) {
         engine.simulateChannelMigration(newChannel, newWidth)
+    }
+
+    fun simulateRoamToCandidate() {
+        val alert = stickyClientAlert.value
+        if (alert != null && alert.candidateBssid.isNotBlank()) {
+            engine.simulateRoam(alert.candidateBssid, alert.candidateChannel, alert.candidateBand, alert.candidateRssi)
+        }
+    }
+
+    fun simulateWalkDegradation() {
+        engine.simulateWalkDegradation()
+    }
+
+    fun shareAuditReport(context: android.content.Context) {
+        val recommendation = com.wavebalance.app.model.ChannelOptimizerEngine.evaluateBand(
+            band = activeConnection.value?.band ?: FrequencyBand.BAND_5_GHZ,
+            allAps = engine.accessPoints.value,
+            currentChannel = activeConnection.value?.channel ?: 36
+        )
+        val markdown = com.wavebalance.app.model.RfAuditReportGenerator.generateMarkdownReport(
+            activeConnection = activeConnection.value,
+            allAps = engine.accessPoints.value,
+            recommendation = recommendation
+        )
+        val sendIntent = android.content.Intent().apply {
+            action = android.content.Intent.ACTION_SEND
+            putExtra(android.content.Intent.EXTRA_TEXT, markdown)
+            putExtra(android.content.Intent.EXTRA_SUBJECT, "WaveBalance RF Airspace Audit - ${activeConnection.value?.cleanSsid ?: "Wi-Fi"}")
+            type = "text/plain"
+        }
+        val shareIntent = android.content.Intent.createChooser(sendIntent, "Share RF Airspace Audit Report")
+        shareIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(shareIntent)
     }
 
     override fun onCleared() {

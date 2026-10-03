@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
@@ -50,7 +52,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -96,6 +106,9 @@ fun WaveBalanceAdaptiveApp(
         if (ch > 0) allAps.count { it.channel == ch && !it.isConnected } else 0
     }
 
+    val context = LocalContext.current
+    val focusRequester = remember { FocusRequester() }
+
     val requiredPermissions = remember {
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -117,6 +130,7 @@ fun WaveBalanceAdaptiveApp(
     }
 
     LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
         if (!viewModel.hasPermissions()) {
             showPermissionModal = true
         } else {
@@ -165,6 +179,51 @@ fun WaveBalanceAdaptiveApp(
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
+                .focusRequester(focusRequester)
+                .focusable()
+                .onKeyEvent { keyEvent ->
+                    if (keyEvent.type == KeyEventType.KeyUp) {
+                        when (keyEvent.key) {
+                            Key.One, Key.D -> {
+                                currentDestination = AppDestination.DASHBOARD
+                                true
+                            }
+                            Key.Two, Key.R -> {
+                                currentDestination = AppDestination.RADAR
+                                true
+                            }
+                            Key.Three, Key.A -> {
+                                currentDestination = AppDestination.DETAILS
+                                true
+                            }
+                            Key.Four, Key.O -> {
+                                currentDestination = AppDestination.OPTIMIZER
+                                true
+                            }
+                            Key.S -> {
+                                viewModel.toggleMockMode(!isMockMode)
+                                true
+                            }
+                            Key.E -> {
+                                viewModel.shareAuditReport(context)
+                                true
+                            }
+                            Key.Spacebar -> {
+                                viewModel.triggerScan()
+                                true
+                            }
+                            Key.W -> {
+                                viewModel.simulateWalkDegradation()
+                                true
+                            }
+                            Key.M -> {
+                                viewModel.simulateRoamToCandidate()
+                                true
+                            }
+                            else -> false
+                        }
+                    } else false
+                }
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Top App Bar
@@ -240,6 +299,13 @@ fun WaveBalanceAdaptiveApp(
                                 )
                             )
                             Spacer(modifier = Modifier.width(4.dp))
+                            IconButton(onClick = { viewModel.shareAuditReport(context) }) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Export Audit Report",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                             IconButton(onClick = { viewModel.triggerScan() }) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,

@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
@@ -53,6 +54,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -61,6 +63,7 @@ import com.wavebalance.app.model.ActiveConnectionInfo
 import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.ui.ScanViewModel
 import com.wavebalance.app.ui.components.RfQualityGauge
+import com.wavebalance.app.ui.components.RoamingMonitorCard
 import com.wavebalance.app.ui.components.SpectrumMiniWaterfall
 import com.wavebalance.app.ui.theme.DarkSurfaceContainer
 import com.wavebalance.app.ui.theme.DarkSurfaceContainerHigh
@@ -80,6 +83,9 @@ fun DashboardScreen(
     val activeConn by viewModel.activeConnection.collectAsState()
     val allAps by viewModel.filteredAccessPoints.collectAsState()
     val totalCount by viewModel.totalApCount.collectAsState()
+    val stickyAlert by viewModel.stickyClientAlert.collectAsState()
+    val roamingHistory by viewModel.roamingHistory.collectAsState()
+    val context = LocalContext.current
 
     val homeCount = allAps.count { it.isUserTaggedHome }
     val neighborCount = (totalCount - homeCount).coerceAtLeast(0)
@@ -138,7 +144,18 @@ fun DashboardScreen(
             )
         }
 
-        // 6. High-Affordance Action Center
+        // 6. Mesh Roaming & Sticky Client Walk-Test Monitor
+        item {
+            RoamingMonitorCard(
+                activeConnection = activeConn,
+                stickyAlert = stickyAlert,
+                roamingHistory = roamingHistory,
+                onSimulateRoam = { viewModel.simulateRoamToCandidate() },
+                onSimulateWalk = { viewModel.simulateWalkDegradation() }
+            )
+        }
+
+        // 7. High-Affordance Action Center
         item {
             ActionCenterSection(
                 collisionCount = collisionCount,
@@ -146,11 +163,12 @@ fun DashboardScreen(
                     viewModel.triggerScan()
                     onNavigateToRadar()
                 },
-                onNavigateToOptimizer = onNavigateToOptimizer
+                onNavigateToOptimizer = onNavigateToOptimizer,
+                onExportReport = { viewModel.shareAuditReport(context) }
             )
         }
 
-        // 7. Contextual Diagnostic Tip
+        // 8. Contextual Diagnostic Tip
         item {
             DiagnosticTipCard(
                 activeConn = activeConn,
@@ -764,7 +782,8 @@ fun AirspaceStatCard(
 fun ActionCenterSection(
     collisionCount: Int,
     onNavigateToRadar: () -> Unit,
-    onNavigateToOptimizer: () -> Unit
+    onNavigateToOptimizer: () -> Unit,
+    onExportReport: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         // Primary Action: Start Area Scan
@@ -841,6 +860,59 @@ fun ActionCenterSection(
                             color = TertiaryContainerAmber
                         )
                     }
+                }
+            }
+        }
+
+        // Tertiary Action: Export RF Diagnostic Audit Report (Sharesheet / Markdown)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onExportReport() },
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceContainerHigh)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = null,
+                        tint = SecondaryContainerEmerald,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Export RF Audit Report",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "Formatted Markdown summary via Android Sharesheet",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SecondaryContainerEmerald.copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = "Export",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = SecondaryContainerEmerald,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
                 }
             }
         }
