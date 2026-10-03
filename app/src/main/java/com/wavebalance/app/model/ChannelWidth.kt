@@ -6,7 +6,8 @@ enum class ChannelWidth(val mhz: Int, val label: String) {
     WIDTH_80(80, "80 MHz"),
     WIDTH_160(160, "160 MHz"),
     WIDTH_320(320, "320 MHz"),
-    UNKNOWN(20, "20 MHz");
+    // mhz stays 20 so drawing code has a sensible minimum width
+    UNKNOWN(20, "Unknown");
 
     companion object {
         fun fromScanResult(widthInt: Int): ChannelWidth {
@@ -17,7 +18,7 @@ enum class ChannelWidth(val mhz: Int, val label: String) {
                 3 -> WIDTH_160
                 4 -> WIDTH_80 // 80+80
                 5 -> WIDTH_320
-                else -> WIDTH_20
+                else -> UNKNOWN
             }
         }
     }

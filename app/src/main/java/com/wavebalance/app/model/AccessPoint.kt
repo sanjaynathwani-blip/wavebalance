@@ -9,20 +9,19 @@ data class AccessPoint(
     val band: FrequencyBand = FrequencyBand.fromFrequency(frequencyMhz),
     val standard: WifiStandard = WifiStandard.UNKNOWN,
     val channelWidth: ChannelWidth = ChannelWidth.WIDTH_20,
+    // Centre of the whole (possibly bonded) channel, from ScanResult.centerFreq0.
+    // For 40/80/160 MHz channels this differs from the primary channel frequency.
+    val centerFrequencyMhz: Int = frequencyMhz,
     val capabilities: String = "",
     val securityType: String = parseSecurity(capabilities),
+    // Parsed from the AP's information elements; null before Android 11
+    val advertised: ApCapabilities? = null,
     val isConnected: Boolean = false,
     val isUserTaggedHome: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 ) {
     val displayName: String
         get() = if (ssid.isBlank() || ssid == "<unknown ssid>") "Hidden Network ($bssid)" else ssid
-
-    /**
-     * Estimated SNR in dB using standard terrestrial noise floor (-95 dBm)
-     */
-    val snr: Int
-        get() = (rssi - (-95)).coerceAtLeast(0)
 
     /**
      * Normalized 0..100% signal rating
@@ -37,16 +36,29 @@ data class AccessPoint(
             }.coerceIn(0, 100)
         }
 
+    /**
+     * Channel number at the centre of the occupied spectrum, fractional for
+     * bonded channels (e.g. 159.0 for a 40 MHz channel on 157 + 161).
+     */
+    val centerChannel: Float
+        get() = FrequencyBand.frequencyToChannelPosition(centerFrequencyMhz, band)
+
     companion object {
+        /**
+         * Maps Android's capability string (e.g. "[RSN-PSK+SAE-CCMP][ESS]") to a security label.
+         */
         fun parseSecurity(caps: String): String {
+            val hasSae = caps.contains("SAE")
+            val hasPsk = caps.contains("PSK")
             return when {
-                caps.contains("WPA3-SAE") || caps.contains("SAE") -> "WPA3 Personal"
-                caps.contains("WPA3") && caps.contains("Enterprise") -> "WPA3 Enterprise"
-                caps.contains("WPA2") && caps.contains("WPA-") -> "WPA2/WPA3"
-                caps.contains("WPA2-PSK") || caps.contains("WPA2") -> "WPA2 Personal"
-                caps.contains("WPA-PSK") -> "WPA Personal"
-                caps.contains("WEP") -> "WEP"
+                caps.contains("EAP") -> if (caps.contains("SUITE_B")) "WPA3 Enterprise" else "WPA2 Enterprise"
+                hasSae && hasPsk -> "WPA2/WPA3 Personal"
+                hasSae -> "WPA3 Personal"
+                hasPsk && caps.contains("[WPA-") && (caps.contains("WPA2") || caps.contains("RSN")) -> "WPA/WPA2 Personal"
+                hasPsk && (caps.contains("WPA2") || caps.contains("RSN")) -> "WPA2 Personal"
+                hasPsk -> "WPA Personal"
                 caps.contains("OWE") -> "OWE (Enhanced Open)"
+                caps.contains("WEP") -> "WEP"
                 else -> "Open"
             }
         }

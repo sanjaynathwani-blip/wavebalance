@@ -25,7 +25,6 @@ object RfAuditReportGenerator {
         val activeBssid = activeConnection?.bssid ?: "N/A"
         val activeSsid = activeConnection?.cleanSsid ?: "Disconnected"
         val activeRssi = activeConnection?.rssi?.let { "$it dBm" } ?: "N/A"
-        val activeSnr = activeConnection?.snr?.let { "$it dB" } ?: "N/A"
         val activeChannel = activeConnection?.channel?.let { "Ch $it" } ?: "N/A"
         val activeBand = activeConnection?.band?.label ?: "N/A"
         val activeStandard = activeConnection?.standard?.let { "${it.generation} (${it.label})" } ?: "Unknown"
@@ -50,7 +49,6 @@ object RfAuditReportGenerator {
         sb.appendLine("| **BSSID (MAC)** | `$activeBssid` | Access Point hardware identity |")
         sb.appendLine("| **Hardware Vendor** | $activeVendor | IEEE OUI classification |")
         sb.appendLine("| **Signal Power (RSSI)** | $activeRssi | ${assessRssi(activeConnection?.rssi)} |")
-        sb.appendLine("| **Signal-to-Noise Ratio** | $activeSnr | ${assessSnr(activeConnection?.snr)} |")
         sb.appendLine("| **Operating Frequency** | $activeBand ($activeChannel) | RF carrier wave allocation |")
         sb.appendLine("| **Protocol Standard** | $activeStandard | 802.11 physical layer framing |")
         sb.appendLine("| **Current Link Speed** | $activeSpeed | Negotiated PHY transmission ceiling |")
@@ -111,16 +109,6 @@ object RfAuditReportGenerator {
             rssi >= -75 -> "Fair (Usable, but susceptible to packet jitter)"
             rssi >= -85 -> "Poor (High frame retransmissions, sticky client risk)"
             else -> "Degraded (Link near disconnection threshold)"
-        }
-    }
-
-    private fun assessSnr(snr: Int?): String {
-        return when {
-            snr == null -> "N/A"
-            snr >= 40 -> "Superb (>40 dB SNR, near-zero floor noise)"
-            snr >= 25 -> "Strong (Clean signal headroom)"
-            snr >= 15 -> "Moderate (Minor background noise)"
-            else -> "Poor (<15 dB SNR, high noise floor)"
         }
     }
 }

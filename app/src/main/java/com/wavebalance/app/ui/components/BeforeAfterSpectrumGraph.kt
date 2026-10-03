@@ -274,6 +274,9 @@ fun BeforeAfterSpectrumGraph(
                         return ((clamped - channelConfig.startChannel) / range) * w
                     }
 
+                    // One channel number is 5 MHz
+                    val pxPerChannel = w / (channelConfig.endChannel - channelConfig.startChannel).toFloat()
+
                     fun rssiToY(rssi: Int): Float {
                         val minRssi = -100f
                         val maxRssi = -25f
@@ -318,16 +321,10 @@ fun BeforeAfterSpectrumGraph(
                         // Skip if it's the active connection (we draw active connection separately with animation)
                         if (ap.isConnected) continue
 
-                        val apX = chToX(ap.channel.toFloat())
+                        // To scale: centred on the channel's real centre, as wide as the channel
+                        val apX = chToX(ap.centerChannel)
                         val peakY = rssiToY(ap.rssi)
-                        val halfWidthPx = when (ap.channelWidth) {
-                            ChannelWidth.WIDTH_20 -> 24.dp.toPx()
-                            ChannelWidth.WIDTH_40 -> 48.dp.toPx()
-                            ChannelWidth.WIDTH_80 -> 78.dp.toPx()
-                            ChannelWidth.WIDTH_160 -> 120.dp.toPx()
-                            ChannelWidth.WIDTH_320 -> 160.dp.toPx()
-                            else -> 36.dp.toPx()
-                        }
+                        val halfWidthPx = (ap.channelWidth.mhz / 10f) * pxPerChannel
 
                         val isCollidingWithCurrent = ap.channel == currentChannel ||
                                 (band == FrequencyBand.BAND_5_GHZ && (ap.channel in (currentChannel - 8)..(currentChannel + 8)))
@@ -340,7 +337,8 @@ fun BeforeAfterSpectrumGraph(
 
                         val path = Path().apply {
                             moveTo(apX - halfWidthPx, graphHeight)
-                            quadraticTo(apX, peakY, apX + halfWidthPx, graphHeight)
+                            // Control point twice as high so the apex lands on the RSSI
+                            quadraticTo(apX, 2 * peakY - graphHeight, apX + halfWidthPx, graphHeight)
                             close()
                         }
 
@@ -382,14 +380,7 @@ fun BeforeAfterSpectrumGraph(
                     val activeX = chToX(animatedChannel)
                     val activeRssi = activeAp?.rssi ?: -52
                     val activePeakY = rssiToY(activeRssi)
-                    val activeHalfWidthPx = when (targetWidth) {
-                        ChannelWidth.WIDTH_20 -> 24.dp.toPx()
-                        ChannelWidth.WIDTH_40 -> 48.dp.toPx()
-                        ChannelWidth.WIDTH_80 -> 78.dp.toPx()
-                        ChannelWidth.WIDTH_160 -> 120.dp.toPx()
-                        ChannelWidth.WIDTH_320 -> 160.dp.toPx()
-                        else -> 78.dp.toPx()
-                    }
+                    val activeHalfWidthPx = (targetWidth.mhz / 10f) * pxPerChannel
 
                     val activeThemeColor = if (viewState == SpectrumViewState.BEFORE_CURRENT) {
                         PrimaryContainerBlue
@@ -399,7 +390,7 @@ fun BeforeAfterSpectrumGraph(
 
                     val activePath = Path().apply {
                         moveTo(activeX - activeHalfWidthPx, graphHeight)
-                        quadraticTo(activeX, activePeakY, activeX + activeHalfWidthPx, graphHeight)
+                        quadraticTo(activeX, 2 * activePeakY - graphHeight, activeX + activeHalfWidthPx, graphHeight)
                         close()
                     }
 

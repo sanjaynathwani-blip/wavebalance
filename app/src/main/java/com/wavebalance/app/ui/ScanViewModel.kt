@@ -8,7 +8,10 @@ import com.wavebalance.app.data.WifiScanEngine
 import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.ActiveConnectionInfo
 import com.wavebalance.app.model.FrequencyBand
+import com.wavebalance.app.model.NetworkGroups
 import com.wavebalance.app.model.RssiSample
+import com.wavebalance.app.model.WifiVendorLookup
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -86,13 +89,43 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Lowercase BSSIDs of every radio the user's own router or mesh broadcasts, so they
+    // aren't counted as interference
+    val ownNetworkBssids: StateFlow<Set<String>> = combine(engine.accessPoints, activeConnection) { aps, conn ->
+        NetworkGroups.ownNetwork(aps, conn?.bssid, conn?.cleanSsid)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    // Other networks' radios on the connected channel (same band; channel numbers repeat across bands)
+    val collisionCount: StateFlow<Int> = combine(engine.accessPoints, activeConnection, ownNetworkBssids) { aps, conn, own ->
+        if (conn == null || conn.channel <= 0) 0
+        else aps.count { it.band == conn.band && it.channel == conn.channel && it.bssid.lowercase() !in own }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
     val totalApCount: StateFlow<Int> = engine.accessPoints
         .combine(MutableStateFlow(Unit)) { aps, _ -> aps.size }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
+    // Scan timestamp of the last sample recorded per BSSID, so re-reading cached
+    // scan results doesn't add duplicate samples
+    private val lastScanSampleTime = mutableMapOf<String, Long>()
+
     init {
+        WifiVendorLookup.useRegistry { application.assets.open(WifiVendorLookup.REGISTRY_ASSET) }
+        viewModelScope.launch(Dispatchers.IO) { WifiVendorLookup.preload() }
+
         // Start background sampling loop for historical sparklines
         startRssiSampler()
+
+        viewModelScope.launch {
+            engine.accessPoints.collect { aps ->
+                recordScanSamples(aps)
+                // Keep the selected AP current; if it drops out of a scan, keep the last known values
+                val selectedBssid = _selectedAp.value?.bssid
+                if (selectedBssid != null) {
+                    aps.firstOrNull { it.bssid.equals(selectedBssid, ignoreCase = true) }?.let { _selectedAp.value = it }
+                }
+            }
+        }
 
         // Monitor roaming handovers
         viewModelScope.launch {
@@ -118,53 +151,53 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Samples the connected AP every 3 s from a fresh WifiInfo read. Other APs are
+     * only measured by scans, so they get a sample per scan in [recordScanSamples].
+     */
     private fun recordCurrentSamples() {
+        engine.updateActiveConnectionInfo()
         val now = System.currentTimeMillis()
         val currentHistory = _rssiHistory.value.toMutableMap()
 
-        // 1. Record active connection if present
         val active = activeConnection.value
         if (active != null && active.bssid.isNotBlank()) {
-            val history = currentHistory[active.bssid]?.toMutableList() ?: mutableListOf()
-            // In mock mode or real, apply small realistic variance to demonstrate live sparklines
+            // Simulated data has a fixed RSSI, so give it some movement; live readings are recorded as-is
             val variance = if (isMockMode.value) Random.nextInt(-2, 3) else 0
-            val reading = (active.rssi + variance).coerceIn(-95, -30)
-            history.add(RssiSample(now, reading))
-            if (history.size > 20) history.removeAt(0)
-            currentHistory[active.bssid] = history
+            currentHistory.appendSample(active.bssid, RssiSample(now, (active.rssi + variance).coerceIn(-95, -30)))
         }
 
-        // 2. Also record selected AP if different
         val selected = _selectedAp.value
-        if (selected != null && selected.bssid != active?.bssid) {
-            val history = currentHistory[selected.bssid]?.toMutableList() ?: mutableListOf()
-            val variance = Random.nextInt(-2, 3)
-            val reading = (selected.rssi + variance).coerceIn(-95, -30)
-            history.add(RssiSample(now, reading))
-            if (history.size > 20) history.removeAt(0)
-            currentHistory[selected.bssid] = history
+        if (isMockMode.value && selected != null && !selected.bssid.equals(active?.bssid, ignoreCase = true)) {
+            currentHistory.appendSample(selected.bssid, RssiSample(now, (selected.rssi + Random.nextInt(-2, 3)).coerceIn(-95, -30)))
         }
 
         _rssiHistory.value = currentHistory
     }
 
+    private fun recordScanSamples(aps: List<AccessPoint>) {
+        if (isMockMode.value) return
+        val activeBssid = activeConnection.value?.bssid
+        val now = System.currentTimeMillis()
+        val currentHistory = _rssiHistory.value.toMutableMap()
+        var changed = false
+        for (ap in aps) {
+            if (ap.bssid.equals(activeBssid, ignoreCase = true)) continue
+            if (lastScanSampleTime[ap.bssid] == ap.timestamp) continue
+            lastScanSampleTime[ap.bssid] = ap.timestamp
+            currentHistory.appendSample(ap.bssid, RssiSample(now, ap.rssi))
+            changed = true
+        }
+        if (changed) _rssiHistory.value = currentHistory
+    }
+
+    private fun MutableMap<String, List<RssiSample>>.appendSample(bssid: String, sample: RssiSample) {
+        val history = (this[bssid] ?: emptyList()) + sample
+        this[bssid] = history.takeLast(MAX_SAMPLES)
+    }
+
     fun selectAccessPoint(ap: AccessPoint?) {
         _selectedAp.value = ap
-        if (ap != null) {
-            // Seed initial samples if empty
-            val current = _rssiHistory.value
-            if (current[ap.bssid].isNullOrEmpty()) {
-                val now = System.currentTimeMillis()
-                val initial = (0 until 12).map { i ->
-                    val offset = (11 - i) * 3000L
-                    val variance = Random.nextInt(-2, 3)
-                    RssiSample(now - offset, (ap.rssi + variance).coerceIn(-95, -30))
-                }
-                val mutable = current.toMutableMap()
-                mutable[ap.bssid] = initial
-                _rssiHistory.value = mutable
-            }
-        }
     }
 
     fun hasPermissions(): Boolean = engine.hasPermissions()
@@ -206,10 +239,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun shareAuditReport(context: android.content.Context) {
+        val conn = activeConnection.value
         val recommendation = com.wavebalance.app.model.ChannelOptimizerEngine.evaluateBand(
-            band = activeConnection.value?.band ?: FrequencyBand.BAND_5_GHZ,
+            band = conn?.band ?: FrequencyBand.BAND_5_GHZ,
             allAps = engine.accessPoints.value,
-            currentChannel = activeConnection.value?.channel ?: 36
+            currentChannel = conn?.channel ?: 36,
+            ownNetworkBssids = NetworkGroups.ownNetwork(engine.accessPoints.value, conn?.bssid, conn?.cleanSsid)
         )
         val markdown = com.wavebalance.app.model.RfAuditReportGenerator.generateMarkdownReport(
             activeConnection = activeConnection.value,
@@ -324,6 +359,10 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             phase = com.wavebalance.app.model.DiagnosticPhase.IDLE,
             progress = 0f
         )
+    }
+
+    companion object {
+        private const val MAX_SAMPLES = 20
     }
 
     override fun onCleared() {

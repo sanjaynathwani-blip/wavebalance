@@ -155,9 +155,9 @@ fun ActiveNetworkHeroCard(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     HeroMetricTile(
-                        label = "SIGNAL & SNR",
+                        label = "SIGNAL",
                         value = "${info.rssi} dBm",
-                        subtext = "SNR: ${info.snr} dB",
+                        subtext = com.wavebalance.app.ui.screens.signalQualityLabel(info.rssi),
                         modifier = Modifier.weight(1f)
                     )
                     HeroMetricTile(

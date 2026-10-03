@@ -34,13 +34,13 @@ object ApMetricsCalculator {
     /**
      * Compute frequency envelope bounds based on primary frequency and channel bandwidth
      */
-    fun getFrequencyEnvelope(frequencyMhz: Int, channelWidth: ChannelWidth): FrequencyEnvelope {
+    fun getFrequencyEnvelope(centerFrequencyMhz: Int, channelWidth: ChannelWidth): FrequencyEnvelope {
         val widthMhz = channelWidth.mhz
-        // Primary channel center is frequencyMhz
-        // In 5 GHz/6 GHz 80/160/320 MHz, primary channel is aligned within standard block
+        // Pass the centre of the whole channel (AccessPoint.centerFrequencyMhz), not the
+        // primary channel: a 40/80/160 MHz channel extends asymmetrically around its primary.
         val halfWidth = widthMhz / 2
-        val startMhz = frequencyMhz - halfWidth
-        val endMhz = frequencyMhz + halfWidth
+        val startMhz = centerFrequencyMhz - halfWidth
+        val endMhz = centerFrequencyMhz + halfWidth
         val centerMhz = (startMhz + endMhz) / 2
 
         val startCh = FrequencyBand.frequencyToChannel(startMhz)
@@ -100,8 +100,10 @@ object ApMetricsCalculator {
      * Analyze interference across the detected airspace
      */
     fun analyzeInterference(targetAp: AccessPoint, allAps: List<AccessPoint>): InterferenceReport {
-        val targetEnv = getFrequencyEnvelope(targetAp.frequencyMhz, targetAp.channelWidth)
-        val otherAps = allAps.filter { it.bssid != targetAp.bssid }
+        val targetEnv = getFrequencyEnvelope(targetAp.centerFrequencyMhz, targetAp.channelWidth)
+        // The target's own router or mesh (its other SSIDs, bands and nodes) isn't interference
+        val sameNetwork = NetworkGroups.group(allAps)[targetAp.bssid.lowercase()].orEmpty() + targetAp.bssid.lowercase()
+        val otherAps = allAps.filter { it.bssid.lowercase() !in sameNetwork }
 
         val coChannel = mutableListOf<AccessPoint>()
         val adjacent = mutableListOf<AccessPoint>()
@@ -112,7 +114,7 @@ object ApMetricsCalculator {
             if (other.channel == targetAp.channel) {
                 coChannel.add(other)
             } else {
-                val otherEnv = getFrequencyEnvelope(other.frequencyMhz, other.channelWidth)
+                val otherEnv = getFrequencyEnvelope(other.centerFrequencyMhz, other.channelWidth)
                 // Check if frequency ranges overlap: max(start1, start2) < min(end1, end2)
                 val overlaps = maxOf(targetEnv.startMhz, otherEnv.startMhz) < minOf(targetEnv.endMhz, otherEnv.endMhz)
                 if (overlaps) {

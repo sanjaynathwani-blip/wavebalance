@@ -5,6 +5,7 @@ import com.wavebalance.app.model.ChannelOptimizerEngine
 import com.wavebalance.app.model.ChannelRating
 import com.wavebalance.app.model.ChannelWidth
 import com.wavebalance.app.model.FrequencyBand
+import com.wavebalance.app.model.NetworkGroups
 import com.wavebalance.app.model.WifiStandard
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -106,5 +107,39 @@ class ChannelOptimizerEngineTest {
         )
 
         assertTrue(listOf(1, 6, 11).contains(recommendation.recommendedChannel))
+    }
+
+    @Test
+    fun testOwnMeshRadios_areNotCountedAsInterference() {
+        val own = NetworkGroups.ownNetwork(TestMesh.all, TestMesh.connected.bssid, "Home_5G")
+
+        val recommendation = ChannelOptimizerEngine.evaluateBand(
+            band = FrequencyBand.BAND_5_GHZ,
+            allAps = TestMesh.all,
+            currentChannel = 149,
+            targetWidth = ChannelWidth.WIDTH_40,
+            ownNetworkBssids = own
+        )
+        val ch149 = recommendation.channelScores.first { it.channel == 149 }
+
+        // Only the same-vendor neighbour is left on channel 149
+        assertEquals(1, ch149.coChannelCount)
+        assertEquals(listOf("Neighbor"), ch149.conflictingSsids)
+        assertEquals(TestMesh.home.count { it.band == FrequencyBand.BAND_5_GHZ }, recommendation.ownRadiosIgnored)
+    }
+
+    @Test
+    fun testWithoutOwnNetwork_meshRadiosLookLikeInterference() {
+        val recommendation = ChannelOptimizerEngine.evaluateBand(
+            band = FrequencyBand.BAND_5_GHZ,
+            allAps = TestMesh.all,
+            currentChannel = 149,
+            targetWidth = ChannelWidth.WIDTH_40
+        )
+        val ch149 = recommendation.channelScores.first { it.channel == 149 }
+
+        // The guest SSID and the far node show up as co-channel networks
+        assertTrue(ch149.coChannelCount >= 3)
+        assertEquals(0, recommendation.ownRadiosIgnored)
     }
 }

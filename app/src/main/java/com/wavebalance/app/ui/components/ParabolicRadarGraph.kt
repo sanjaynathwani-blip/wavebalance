@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.FrequencyBand
+import com.wavebalance.app.model.NetworkGroups
 import com.wavebalance.app.ui.theme.DarkSurfaceContainer
 import com.wavebalance.app.ui.theme.DarkSurfaceContainerHigh
 import com.wavebalance.app.ui.theme.PrimaryContainerBlue
@@ -86,10 +87,13 @@ fun ParabolicRadarGraph(
         }
     }
 
-    // Identify channels with 2+ APs (collisions)
-    val collisionChannels = remember(apsInBand) {
+    // Channels shared by 2+ different networks. One router's or mesh's own radios
+    // sharing a channel (guest SSID, mesh nodes) isn't a collision.
+    val collisionChannels = remember(accessPoints, apsInBand) {
+        // Group across all bands: a band-to-band sibling can be what links two SSIDs
+        val networks = NetworkGroups.group(accessPoints)
         apsInBand.groupBy { it.channel }
-            .filter { it.value.size >= 2 }
+            .filter { (_, aps) -> aps.map { networks[it.bssid.lowercase()] }.distinct().size >= 2 }
             .keys.toSet()
     }
 
@@ -163,7 +167,7 @@ fun ParabolicRadarGraph(
                                 val graphWidth = size.width - graphPaddingLeft - graphPaddingRight
 
                                 val closest = apsInBand.minByOrNull { ap ->
-                                    val chFrac = (ap.channel - channelConfig.startChannel).toFloat() /
+                                    val chFrac = (ap.centerChannel - channelConfig.startChannel) /
                                             (channelConfig.endChannel - channelConfig.startChannel).coerceAtLeast(1)
                                     val apX = graphPaddingLeft + (chFrac * graphWidth)
                                     val apFrac = ((ap.rssi - (-95)) / 65f).coerceIn(0.05f, 1f)
@@ -244,22 +248,16 @@ fun ParabolicRadarGraph(
                     )
 
                     sortedAps.forEach { ap ->
-                        val chFrac = (ap.channel - channelConfig.startChannel).toFloat() /
-                                (channelConfig.endChannel - channelConfig.startChannel).coerceAtLeast(1)
-                        val centerX = paddingLeft + (chFrac * chartWidth)
+                        // Drawn to scale: centred on the whole channel's centre frequency, and as wide
+                        // as the channel (one channel number = 5 MHz)
+                        val channelSpan = (channelConfig.endChannel - channelConfig.startChannel).coerceAtLeast(1).toFloat()
+                        val pxPerChannel = chartWidth / channelSpan
+                        val centerX = paddingLeft + (ap.centerChannel - channelConfig.startChannel) * pxPerChannel
 
                         val signalFraction = ((ap.rssi - (-95)) / 65f).coerceIn(0.08f, 1f)
                         val peakY = baselineY - (signalFraction * chartHeight)
 
-                        // Dome half-width in pixels based on channel width
-                        val halfWidthPx = when (ap.channelWidth.mhz) {
-                            20 -> 24.dp.toPx()
-                            40 -> 44.dp.toPx()
-                            80 -> 72.dp.toPx()
-                            160 -> 110.dp.toPx()
-                            320 -> 160.dp.toPx()
-                            else -> 24.dp.toPx()
-                        }
+                        val halfWidthPx = (ap.channelWidth.mhz / 10f) * pxPerChannel
 
                         val startX = (centerX - halfWidthPx).coerceAtLeast(paddingLeft)
                         val endX = (centerX + halfWidthPx).coerceAtMost(size.width - paddingRight)
@@ -271,10 +269,14 @@ fun ParabolicRadarGraph(
                             else -> Color(0xFF87929A)
                         }
 
+                        // A quadratic curve only rises halfway to its control point, so the control
+                        // point sits twice as high for the apex to land on the AP's RSSI
+                        val controlY = 2 * peakY - baselineY
+
                         // Parabola Fill Path
                         val fillPath = Path().apply {
                             moveTo(startX, baselineY)
-                            quadraticTo(centerX, peakY, endX, baselineY)
+                            quadraticTo(centerX, controlY, endX, baselineY)
                             close()
                         }
 
@@ -291,7 +293,7 @@ fun ParabolicRadarGraph(
                         // Parabola Outline Stroke Path
                         val strokePath = Path().apply {
                             moveTo(startX, baselineY)
-                            quadraticTo(centerX, peakY, endX, baselineY)
+                            quadraticTo(centerX, controlY, endX, baselineY)
                         }
 
                         drawPath(

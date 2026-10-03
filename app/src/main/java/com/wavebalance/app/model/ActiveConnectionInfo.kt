@@ -12,21 +12,12 @@ data class ActiveConnectionInfo(
     val band: FrequencyBand = FrequencyBand.fromFrequency(frequencyMhz),
     val standard: WifiStandard = WifiStandard.UNKNOWN,
     val ipAddress: String = "",
-    val channelWidth: ChannelWidth = ChannelWidth.UNKNOWN
+    // UNKNOWN when the connected AP isn't in the latest scan results
+    val channelWidth: ChannelWidth = ChannelWidth.UNKNOWN,
+    // Highest link rates both the device and the AP support (Android 11+), -1 if unknown
+    val maxSupportedTxLinkSpeedMbps: Int = -1,
+    val maxSupportedRxLinkSpeedMbps: Int = -1
 ) {
-    val snr: Int
-        get() = (rssi - (-95)).coerceAtLeast(0)
-
     val cleanSsid: String
         get() = ssid.removeSurrounding("\"")
-
-    val effectiveChannelWidth: ChannelWidth
-        get() = if (channelWidth != ChannelWidth.UNKNOWN) {
-            channelWidth
-        } else when (band) {
-            FrequencyBand.BAND_6_GHZ -> ChannelWidth.WIDTH_160
-            FrequencyBand.BAND_5_GHZ -> ChannelWidth.WIDTH_80
-            FrequencyBand.BAND_2_4_GHZ -> ChannelWidth.WIDTH_20
-            else -> ChannelWidth.WIDTH_20
-        }
 }

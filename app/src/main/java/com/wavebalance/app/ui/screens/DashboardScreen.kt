@@ -64,6 +64,7 @@ import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.ActiveConnectionInfo
 import com.wavebalance.app.model.ChannelWidth
 import com.wavebalance.app.model.FrequencyBand
+import com.wavebalance.app.model.WifiStandard
 import com.wavebalance.app.ui.ScanViewModel
 import com.wavebalance.app.ui.adaptive.LocalWindowLayout
 import com.wavebalance.app.ui.adaptive.TwoColumnPage
@@ -77,6 +78,10 @@ import com.wavebalance.app.ui.theme.NeonCyan
 import com.wavebalance.app.ui.theme.PrimaryContainerBlue
 import com.wavebalance.app.ui.theme.SecondaryContainerEmerald
 import com.wavebalance.app.ui.theme.TertiaryContainerAmber
+import com.wavebalance.app.ui.theme.SignalWeak
+import com.wavebalance.app.ui.theme.SignalFair
+import com.wavebalance.app.ui.theme.SignalGood
+import com.wavebalance.app.ui.theme.SignalExcellent
 
 @Composable
 fun DashboardScreen(
@@ -93,16 +98,14 @@ fun DashboardScreen(
     val totalCount by viewModel.totalApCount.collectAsState()
     val stickyAlert by viewModel.stickyClientAlert.collectAsState()
     val roamingHistory by viewModel.roamingHistory.collectAsState()
+    val isMockMode by viewModel.isMockMode.collectAsState()
     val context = LocalContext.current
 
-    val homeCount = allAps.count { it.isUserTaggedHome }
+    val ownNetworkBssids by viewModel.ownNetworkBssids.collectAsState()
+    val collisionCount by viewModel.collisionCount.collectAsState()
+    // Radios of the user's own router or mesh (all bands and SSIDs), and everyone else's
+    val homeCount = ownNetworkBssids.size
     val neighborCount = (totalCount - homeCount).coerceAtLeast(0)
-
-    // Calculate collisions (APs sharing the exact same channel as active connection)
-    val activeChannel = activeConn?.channel ?: -1
-    val collisionCount = if (activeChannel > 0) {
-        allAps.count { it.channel == activeChannel && !it.isConnected }
-    } else 0
 
     // RF Quality Score calculation (based on SNR, link speed, and co-channel interference)
     val rfQualityScore = rememberRfScore(activeConn, collisionCount)
@@ -150,7 +153,8 @@ fun DashboardScreen(
             stickyAlert = stickyAlert,
             roamingHistory = roamingHistory,
             onSimulateRoam = { viewModel.simulateRoamToCandidate() },
-            onSimulateWalk = { viewModel.simulateWalkDegradation() }
+            onSimulateWalk = { viewModel.simulateWalkDegradation() },
+            showSimulationControls = isMockMode
         )
     }
     val actionCenter: @Composable () -> Unit = {
@@ -367,7 +371,7 @@ fun HeroConnectionCard(
                                 maxLines = 1
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
+                            if (connectedAp != null && connectedAp.securityType != "Open") Icon(
                                 imageVector = Icons.Default.Lock,
                                 contentDescription = "Secure",
                                 tint = PrimaryContainerBlue,
@@ -375,7 +379,7 @@ fun HeroConnectionCard(
                             )
                         }
                         Text(
-                            text = "BSSID: " + (activeConn?.bssid ?: "00:00:00:00:00:00"),
+                            text = activeConn?.let { "BSSID: ${it.bssid}" } ?: "Not connected",
                             style = MaterialTheme.typography.labelSmall,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -388,7 +392,11 @@ fun HeroConnectionCard(
                     color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     Text(
-                        text = if (activeConn != null) "WPA2/WPA3" else "Scanning",
+                        text = when {
+                            activeConn == null -> "Scanning"
+                            connectedAp != null -> connectedAp.securityType
+                            else -> "Security unknown"
+                        },
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         color = PrimaryContainerBlue,
@@ -407,16 +415,16 @@ fun HeroConnectionCard(
                 TelemetryGridCell(
                     label = "RF CHANNEL",
                     icon = Icons.Default.WifiChannel,
-                    value = "${activeConn?.frequencyMhz ?: 5240} MHz",
-                    subtext = "Ch ${activeConn?.channel ?: 48}",
+                    value = activeConn?.let { "${it.frequencyMhz} MHz" } ?: "—",
+                    subtext = activeConn?.let { "Ch ${it.channel}" } ?: "Not connected",
                     modifier = Modifier.weight(1f)
                 )
                 TelemetryGridCell(
                     label = "RSSI SIGNAL",
                     icon = Icons.Default.Wifi,
-                    value = "${activeConn?.rssi ?: -56} dBm",
-                    subtext = if ((activeConn?.rssi ?: -56) >= -65) "Excellent Link" else "Good Link",
-                    valueColor = SecondaryContainerEmerald,
+                    value = activeConn?.let { "${it.rssi} dBm" } ?: "—",
+                    subtext = activeConn?.let { signalQualityLabel(it.rssi) } ?: "Not connected",
+                    valueColor = activeConn?.let { signalQualityColor(it.rssi) } ?: MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -427,16 +435,19 @@ fun HeroConnectionCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                val streams = connectedAp?.advertised?.maxSpatialStreams
                 TelemetryGridCell(
-                    label = "CALCULATED SNR",
+                    label = "SPATIAL STREAMS",
                     icon = Icons.Default.Sensors,
-                    value = "${activeConn?.snr ?: 39} dB",
-                    subtext = "Optimal RF Delta",
+                    value = streams?.let { "Up to $it" } ?: "—",
+                    subtext = when {
+                        streams != null -> "Advertised by the AP"
+                        connectedAp == null -> "AP not in last scan"
+                        else -> "Not advertised"
+                    },
                     modifier = Modifier.weight(1f)
                 )
-                val resolvedWidth = connectedAp?.channelWidth
-                    ?: activeConn?.effectiveChannelWidth
-                    ?: ChannelWidth.WIDTH_20
+                val resolvedWidth = connectedAp?.channelWidth ?: activeConn?.channelWidth ?: ChannelWidth.UNKNOWN
 
                 val resolvedGen = activeConn?.standard?.generation
                     ?: connectedAp?.standard?.generation
@@ -450,50 +461,25 @@ fun HeroConnectionCard(
                     modifier = Modifier.weight(1f)
                 )
             }
-
-            Spacer(modifier = Modifier.height(14.dp))
-
-            // Active Hardware Stream Strip
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(10.dp),
-                color = DarkSurfaceContainerHigh.copy(alpha = 0.6f)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f, fill = false),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CellTower,
-                            contentDescription = null,
-                            tint = PrimaryContainerBlue,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "MIMO Stream 2x2 (DL/UL MU-MIMO)",
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                    Text(
-                        text = "Active",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = SecondaryContainerEmerald
-                    )
-                }
-            }
         }
     }
+}
+
+/**
+ * Signal labels shared with the signal colours in the theme (SignalExcellent etc.).
+ */
+fun signalQualityLabel(rssi: Int): String = when {
+    rssi >= -50 -> "Excellent"
+    rssi >= -65 -> "Good"
+    rssi >= -75 -> "Fair"
+    else -> "Weak"
+}
+
+fun signalQualityColor(rssi: Int): Color = when {
+    rssi >= -50 -> SignalExcellent
+    rssi >= -65 -> SignalGood
+    rssi >= -75 -> SignalFair
+    else -> SignalWeak
 }
 
 @Composable
@@ -622,7 +608,7 @@ fun PerformanceGaugeSection(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "THEORETICAL LINK SPEED",
+                            text = "NEGOTIATED LINK RATE",
                             fontSize = 10.sp,
                             fontFamily = FontFamily.Monospace,
                             color = SecondaryContainerEmerald,
@@ -630,14 +616,14 @@ fun PerformanceGaugeSection(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "${activeConn?.txLinkSpeedMbps?.takeIf { it > 0 } ?: (activeConn?.linkSpeedMbps ?: 390)} Mbps Tx",
+                            text = "${activeConn?.let { it.txLinkSpeedMbps.takeIf { tx -> tx > 0 } ?: it.linkSpeedMbps } ?: "—"} Mbps Tx",
                             fontSize = 15.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = "${activeConn?.rxLinkSpeedMbps?.takeIf { it > 0 } ?: 458} Mbps Rx",
+                            text = "${activeConn?.rxLinkSpeedMbps?.takeIf { it > 0 } ?: "—"} Mbps Rx",
                             fontSize = 15.sp,
                             fontFamily = FontFamily.Monospace,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
@@ -672,24 +658,25 @@ fun PerformanceGaugeSection(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Android exposes no noise floor, so there is no SNR to show; these are all read from WifiInfo
                 FineMetricCard(
-                    label = "NOISE FLOOR",
-                    value = "-95 dBm",
-                    subtext = "Ultra Quiet",
-                    subtextColor = SecondaryContainerEmerald,
+                    label = "IP ADDRESS",
+                    value = activeConn?.ipAddress?.ifBlank { null } ?: "—",
+                    subtext = "IPv4 on this network",
+                    subtextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
                 FineMetricCard(
-                    label = "EST. SNR",
-                    value = "${activeConn?.snr ?: 39} dB",
-                    subtext = "Optimal Delta",
+                    label = "MAX LINK RATE",
+                    value = activeConn?.maxSupportedTxLinkSpeedMbps?.takeIf { it > 0 }?.let { "$it Mbps" } ?: "—",
+                    subtext = "Device and AP limit",
                     subtextColor = PrimaryContainerBlue,
                     modifier = Modifier.weight(1f)
                 )
                 FineMetricCard(
                     label = "STANDARD",
-                    value = activeConn?.standard?.generation ?: "Wi-Fi 6",
-                    subtext = activeConn?.standard?.label ?: "802.11ax",
+                    value = activeConn?.standard?.takeIf { it != WifiStandard.UNKNOWN }?.generation ?: "—",
+                    subtext = activeConn?.standard?.takeIf { it != WifiStandard.UNKNOWN }?.label ?: "Unknown",
                     subtextColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
@@ -773,8 +760,8 @@ fun SurroundingAirspaceTrio(
         ) {
             AirspaceStatCard(
                 icon = Icons.Default.Home,
-                label = "Home APs",
-                value = "$homeCount Active",
+                label = "Your network",
+                value = "$homeCount ${if (homeCount == 1) "radio" else "radios"}",
                 iconTint = SecondaryContainerEmerald,
                 onClick = onNavigateToRadar,
                 modifier = Modifier.weight(1f)
@@ -1142,10 +1129,10 @@ fun DiagnosticTipCard(
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = if (collisionCount > 0) {
-                        "Detected $collisionCount neighboring networks sharing or overlapping Channel ${activeConn?.channel ?: 48}. Opening the Optimizer will calculate clear channel allocations."
-                    } else {
-                        "Your current uplink on Channel ${activeConn?.channel ?: 48} (${activeConn?.band?.label ?: "5 GHz"}) is operating with minimal adjacent channel interference."
+                    text = when {
+                        activeConn == null -> "Not connected to Wi-Fi. Connect to a network to see channel advice."
+                        collisionCount > 0 -> "Detected $collisionCount neighboring networks sharing or overlapping Channel ${activeConn.channel}. Opening the Optimizer will calculate clear channel allocations."
+                        else -> "Your current uplink on Channel ${activeConn.channel} (${activeConn.band.label}) is operating with minimal adjacent channel interference."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

@@ -73,6 +73,7 @@ class RfAuditReportGeneratorTest {
         scoreDelta = 30,
         eliminatedCollisions = 2,
         channelScores = emptyList(),
+        ownRadiosIgnored = 0,
         stepByStepGuide = emptyList(),
         reasonSummary = "Switch to UNII-3 channel 149 to eliminate UNII-1 contention.",
         routerDirectivesText = "1. Navigate to 5 GHz Wireless Settings\n2. Set Control Channel to 149\n3. Set Channel Width to 80 MHz"
@@ -92,7 +93,6 @@ class RfAuditReportGeneratorTest {
         assertTrue(report.contains("`WaveBalance_HQ`"))
         assertTrue(report.contains("00:1A:2B:3C:4D:5E"))
         assertTrue(report.contains("-54 dBm"))
-        assertTrue(report.contains("41 dB"))
         assertTrue(report.contains("866 Mbps"))
         assertTrue(report.contains("Wi-Fi 6 (802.11ax)"))
 

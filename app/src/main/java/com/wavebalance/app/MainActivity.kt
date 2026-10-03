@@ -133,10 +133,7 @@ fun WaveBalanceAdaptiveApp(
     val isMockMode by viewModel.isMockMode.collectAsState()
     val scanStatus by viewModel.scanStatus.collectAsState()
 
-    val collisionCount = remember(allAps, activeConn) {
-        val ch = activeConn?.channel ?: -1
-        if (ch > 0) allAps.count { it.channel == ch && !it.isConnected } else 0
-    }
+    val collisionCount by viewModel.collisionCount.collectAsState()
 
     val context = LocalContext.current
     val focusRequester = remember { FocusRequester() }
@@ -214,8 +211,9 @@ fun WaveBalanceAdaptiveApp(
                     Key.S -> { viewModel.toggleMockMode(!isMockMode); true }
                     Key.E -> { viewModel.shareAuditReport(context); true }
                     Key.Spacebar -> { viewModel.triggerScan(); true }
-                    Key.W -> { viewModel.simulateWalkDegradation(); true }
-                    Key.M -> { viewModel.simulateRoamToCandidate(); true }
+                    // Simulation shortcuts only act on simulated data
+                    Key.W -> { if (isMockMode) viewModel.simulateWalkDegradation(); isMockMode }
+                    Key.M -> { if (isMockMode) viewModel.simulateRoamToCandidate(); isMockMode }
                     Key.P -> {
                         val conn = activeConn
                         if (conn != null) {

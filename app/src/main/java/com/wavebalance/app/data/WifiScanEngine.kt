@@ -19,6 +19,8 @@ import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.ActiveConnectionInfo
 import com.wavebalance.app.model.ChannelWidth
 import com.wavebalance.app.model.FrequencyBand
+import com.wavebalance.app.model.InformationElements
+import com.wavebalance.app.model.RawInformationElement
 import com.wavebalance.app.model.WifiStandard
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -105,6 +107,7 @@ class WifiScanEngine(private val context: Context) {
                 ap.copy(
                     channel = newChannel,
                     frequencyMhz = newFreq,
+                    centerFrequencyMhz = newFreq,
                     channelWidth = newWidth
                 )
             } else ap
@@ -253,6 +256,18 @@ class WifiScanEngine(private val context: Context) {
             }
 
             val channelWidth = ChannelWidth.fromScanResult(scan.channelWidth)
+            // centerFreq0 is 0 for 20 MHz channels, where the primary frequency is the centre
+            val centerFrequency = if (scan.centerFreq0 > 0) scan.centerFreq0 else scan.frequency
+            val advertised = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                InformationElements.parse(
+                    scan.informationElements.map { ie ->
+                        val buffer = ie.bytes
+                        val bytes = ByteArray(buffer.remaining())
+                        buffer.duplicate().get(bytes)
+                        RawInformationElement(ie.id, ie.idExt, bytes)
+                    }
+                )
+            } else null
             val isConnected = activeBssid.isNotBlank() && scan.BSSID.equals(activeBssid, ignoreCase = true)
             val isHome = homeTags.contains(scan.BSSID)
 
@@ -265,7 +280,9 @@ class WifiScanEngine(private val context: Context) {
                 band = FrequencyBand.fromFrequency(scan.frequency),
                 standard = wifiStd,
                 channelWidth = channelWidth,
+                centerFrequencyMhz = centerFrequency,
                 capabilities = scan.capabilities ?: "",
+                advertised = advertised,
                 isConnected = isConnected,
                 isUserTaggedHome = isHome,
                 timestamp = scan.timestamp
@@ -308,11 +325,11 @@ class WifiScanEngine(private val context: Context) {
                 ?: _accessPoints.value.firstOrNull { cleanSsid.isNotBlank() && it.ssid.equals(cleanSsid, ignoreCase = true) && it.frequencyMhz == freq }
                 ?: _accessPoints.value.firstOrNull { cleanSsid.isNotBlank() && it.ssid.equals(cleanSsid, ignoreCase = true) }
 
-            val detectedWidth = matchingAp?.channelWidth ?: when {
-                freq > 5925 -> ChannelWidth.WIDTH_160
-                freq > 5000 -> ChannelWidth.WIDTH_80
-                else -> ChannelWidth.WIDTH_20
-            }
+            // Android only reports channel width in scan results, so it stays unknown
+            // until the connected AP appears in one
+            val detectedWidth = matchingAp?.channelWidth ?: ChannelWidth.UNKNOWN
+            val maxTx = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) info.maxSupportedTxLinkSpeedMbps else -1
+            val maxRx = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) info.maxSupportedRxLinkSpeedMbps else -1
 
             _activeConnection.value = ActiveConnectionInfo(
                 ssid = info.ssid ?: "",
@@ -326,7 +343,9 @@ class WifiScanEngine(private val context: Context) {
                 band = FrequencyBand.fromFrequency(freq),
                 standard = if (wifiStd != WifiStandard.UNKNOWN) wifiStd else (matchingAp?.standard ?: WifiStandard.UNKNOWN),
                 ipAddress = ipStr,
-                channelWidth = detectedWidth
+                channelWidth = detectedWidth,
+                maxSupportedTxLinkSpeedMbps = maxTx,
+                maxSupportedRxLinkSpeedMbps = maxRx
             )
         } else {
             _activeConnection.value = null
