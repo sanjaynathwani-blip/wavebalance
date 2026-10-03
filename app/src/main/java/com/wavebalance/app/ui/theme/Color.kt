@@ -14,6 +14,8 @@ val DarkSurfaceContainerHighest = Color(0xFF2D3449)
 val PrimaryBlue = Color(0xFF8ED5FF)
 val PrimaryContainerBlue = Color(0xFF38BDF8)
 val OnPrimaryBlue = Color(0xFF00354A)
+val NeonCyan = Color(0xFF00F5FF)
+val CardSurfaceSlate = Color(0xFF1E293B)
 
 val SecondaryEmerald = Color(0xFF4EDEA3)
 val SecondaryContainerEmerald = Color(0xFF10B981)

@@ -3,6 +3,7 @@ package com.wavebalance.app.ui.navigation
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -21,6 +22,11 @@ enum class AppDestination(
         label = "Radar",
         icon = Icons.Default.WifiTethering,
         contentDescription = "Spectrum Radar & APs"
+    ),
+    SURVEY(
+        label = "Survey",
+        icon = Icons.Default.Layers,
+        contentDescription = "Site Survey & RF Heatmap"
     ),
     DETAILS(
         label = "AP Details",

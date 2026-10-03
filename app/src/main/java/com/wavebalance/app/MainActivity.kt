@@ -192,11 +192,15 @@ fun WaveBalanceAdaptiveApp(
                                 currentDestination = AppDestination.RADAR
                                 true
                             }
-                            Key.Three, Key.A -> {
+                            Key.Three, Key.H -> {
+                                currentDestination = AppDestination.SURVEY
+                                true
+                            }
+                            Key.Four, Key.A -> {
                                 currentDestination = AppDestination.DETAILS
                                 true
                             }
-                            Key.Four, Key.O -> {
+                            Key.Five, Key.O -> {
                                 currentDestination = AppDestination.OPTIMIZER
                                 true
                             }
@@ -218,6 +222,25 @@ fun WaveBalanceAdaptiveApp(
                             }
                             Key.M -> {
                                 viewModel.simulateRoamToCandidate()
+                                true
+                            }
+                            Key.P -> {
+                                val conn = activeConn
+                                if (conn != null) {
+                                    viewModel.addSurveyPoint(
+                                        com.wavebalance.app.model.SurveyPoint(
+                                            x = 0.50f,
+                                            y = 0.50f,
+                                            roomName = "Survey Pin",
+                                            bssid = conn.bssid,
+                                            ssid = conn.cleanSsid,
+                                            rssi = conn.rssi,
+                                            frequencyMhz = conn.frequencyMhz,
+                                            channel = conn.channel,
+                                            band = conn.band
+                                        )
+                                    )
+                                }
                                 true
                             }
                             else -> false
@@ -272,6 +295,7 @@ fun WaveBalanceAdaptiveApp(
                                     text = when (currentDestination) {
                                         AppDestination.DASHBOARD -> "Wi-Fi Dashboard & RF Health"
                                         AppDestination.RADAR -> "Spectrum Scanner & Radar"
+                                        AppDestination.SURVEY -> "Site Survey & RF Heatmap"
                                         AppDestination.DETAILS -> "Access Point Deep Dive"
                                         AppDestination.OPTIMIZER -> "Channel Interference Optimizer"
                                     },
@@ -328,6 +352,7 @@ fun WaveBalanceAdaptiveApp(
                                 viewModel = viewModel,
                                 onNavigateToRadar = { currentDestination = AppDestination.RADAR },
                                 onNavigateToOptimizer = { currentDestination = AppDestination.OPTIMIZER },
+                                onNavigateToSurvey = { currentDestination = AppDestination.SURVEY },
                                 onNavigateToDetails = {
                                     val activeBssid = activeConn?.bssid
                                     val target = allAps.find { it.bssid.equals(activeBssid, ignoreCase = true) } ?: allAps.firstOrNull()
@@ -347,6 +372,11 @@ fun WaveBalanceAdaptiveApp(
                                     viewModel.selectAccessPoint(ap)
                                     currentDestination = AppDestination.DETAILS
                                 }
+                            )
+                        }
+                        AppDestination.SURVEY -> {
+                            com.wavebalance.app.ui.screens.SiteSurveyScreen(
+                                viewModel = viewModel
                             )
                         }
                         AppDestination.DETAILS -> {

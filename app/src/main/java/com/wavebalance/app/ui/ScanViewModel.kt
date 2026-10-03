@@ -43,6 +43,18 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     private val _roamingHistory = MutableStateFlow<List<com.wavebalance.app.model.RoamingEvent>>(emptyList())
     val roamingHistory: StateFlow<List<com.wavebalance.app.model.RoamingEvent>> = _roamingHistory.asStateFlow()
 
+    private val _surveyPoints = MutableStateFlow<List<com.wavebalance.app.model.SurveyPoint>>(emptyList())
+    val surveyPoints: StateFlow<List<com.wavebalance.app.model.SurveyPoint>> = _surveyPoints.asStateFlow()
+
+    val surveyAnalytics: StateFlow<com.wavebalance.app.model.SurveyAnalytics> = _surveyPoints
+        .combine(MutableStateFlow(Unit)) { points, _ ->
+            com.wavebalance.app.model.SiteSurveyEngine.computeAnalytics(points)
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            com.wavebalance.app.model.SiteSurveyEngine.computeAnalytics(emptyList())
+        )
+
     private var lastActiveConn: ActiveConnectionInfo? = null
 
     val stickyClientAlert: StateFlow<com.wavebalance.app.model.StickyClientAlert?> = combine(
@@ -205,6 +217,22 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val shareIntent = android.content.Intent.createChooser(sendIntent, "Share RF Airspace Audit Report")
         shareIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
         context.startActivity(shareIntent)
+    }
+
+    fun addSurveyPoint(point: com.wavebalance.app.model.SurveyPoint) {
+        _surveyPoints.value = _surveyPoints.value + point
+    }
+
+    fun removeSurveyPoint(id: String) {
+        _surveyPoints.value = _surveyPoints.value.filter { it.id != id }
+    }
+
+    fun clearSurveyPoints() {
+        _surveyPoints.value = emptyList()
+    }
+
+    fun populateSimulatedWalkthrough(ssid: String, bssid: String) {
+        _surveyPoints.value = com.wavebalance.app.model.SiteSurveyEngine.generateSimulatedWalkthrough(ssid, bssid)
     }
 
     override fun onCleared() {

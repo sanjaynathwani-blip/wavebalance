@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.AutoFixHigh
 import androidx.compose.material.icons.filled.CellTower
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Radar
@@ -68,6 +69,7 @@ import com.wavebalance.app.ui.components.SpectrumMiniWaterfall
 import com.wavebalance.app.ui.theme.DarkSurfaceContainer
 import com.wavebalance.app.ui.theme.DarkSurfaceContainerHigh
 import com.wavebalance.app.ui.theme.DarkSurfaceContainerLow
+import com.wavebalance.app.ui.theme.NeonCyan
 import com.wavebalance.app.ui.theme.PrimaryContainerBlue
 import com.wavebalance.app.ui.theme.SecondaryContainerEmerald
 import com.wavebalance.app.ui.theme.TertiaryContainerAmber
@@ -78,6 +80,7 @@ fun DashboardScreen(
     onNavigateToRadar: () -> Unit,
     onNavigateToOptimizer: () -> Unit,
     onNavigateToDetails: () -> Unit = {},
+    onNavigateToSurvey: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val activeConn by viewModel.activeConnection.collectAsState()
@@ -164,6 +167,7 @@ fun DashboardScreen(
                     onNavigateToRadar()
                 },
                 onNavigateToOptimizer = onNavigateToOptimizer,
+                onNavigateToSurvey = onNavigateToSurvey,
                 onExportReport = { viewModel.shareAuditReport(context) }
             )
         }
@@ -783,6 +787,7 @@ fun ActionCenterSection(
     collisionCount: Int,
     onNavigateToRadar: () -> Unit,
     onNavigateToOptimizer: () -> Unit,
+    onNavigateToSurvey: () -> Unit = {},
     onExportReport: () -> Unit = {}
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -807,7 +812,60 @@ fun ActionCenterSection(
             )
         }
 
-        // Secondary Action: View Optimization Report
+        // Secondary Action: Site Survey & Coverage Heatmap
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onNavigateToSurvey() },
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceContainerHigh)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.Layers,
+                        contentDescription = null,
+                        tint = NeonCyan,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "Site Survey & Coverage Heatmap",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = "2D Floorplan mapping, dead zones & mesh recommendations",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = NeonCyan.copy(alpha = 0.2f)
+                ) {
+                    Text(
+                        text = "Survey",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                        color = NeonCyan,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
+            }
+        }
+
+        // Tertiary Action: View Optimization Report
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -864,7 +922,7 @@ fun ActionCenterSection(
             }
         }
 
-        // Tertiary Action: Export RF Diagnostic Audit Report (Sharesheet / Markdown)
+        // Quaternary Action: Export RF Diagnostic Audit Report (Sharesheet / Markdown)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
