@@ -110,7 +110,6 @@ private fun exportSpeedReport(
 @Composable
 fun SpeedDiagnosticScreen(
     viewModel: ScanViewModel,
-    onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val activeConn by viewModel.activeConnection.collectAsState()
@@ -126,43 +125,6 @@ fun SpeedDiagnosticScreen(
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // Top App Bar Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = onNavigateBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(CardSurfaceSlate)
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = NeonCyan
-                )
-            }
-            Spacer(modifier = Modifier.width(14.dp))
-            Column {
-                Text(
-                    text = "Speed & Latency Diagnostic",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = "Bufferbloat & Throughput Benchmark",
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
