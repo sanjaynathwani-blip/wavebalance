@@ -52,6 +52,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -74,6 +75,8 @@ import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.model.OptimizerRecommendation
 import com.wavebalance.app.model.RouterStep
 import com.wavebalance.app.ui.ScanViewModel
+import com.wavebalance.app.ui.adaptive.LocalWindowLayout
+import com.wavebalance.app.ui.adaptive.TwoColumnPage
 import com.wavebalance.app.ui.components.BeforeAfterSpectrumGraph
 import com.wavebalance.app.ui.theme.DarkSurfaceContainer
 import com.wavebalance.app.ui.theme.DarkSurfaceContainerHigh
@@ -132,6 +135,177 @@ fun OptimizerScreen(
 
     var migrationApplied by remember { mutableStateOf(false) }
 
+    val rankedScores = remember(recommendation) {
+        recommendation.channelScores.sortedByDescending { it.score }
+    }
+
+    val bandControls: @Composable () -> Unit = {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceContainer)
+        ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+                Text(
+                    text = "Spectrum Band & Channel Bandwidth",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Band selector chips
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        FrequencyBand.BAND_2_4_GHZ to "2.4 GHz",
+                        FrequencyBand.BAND_5_GHZ to "5 GHz",
+                        FrequencyBand.BAND_6_GHZ to "6 GHz"
+                    ).forEach { (b, label) ->
+                        FilterChip(
+                            selected = selectedBand == b,
+                            onClick = {
+                                selectedBand = b
+                                // Adjust bandwidth sensible default
+                                if (b == FrequencyBand.BAND_2_4_GHZ) selectedWidth = ChannelWidth.WIDTH_20
+                                else if (b == FrequencyBand.BAND_5_GHZ && selectedWidth == ChannelWidth.WIDTH_320) selectedWidth = ChannelWidth.WIDTH_80
+                            },
+                            label = { Text(label, fontSize = 12.sp) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = PrimaryContainerBlue,
+                                selectedLabelColor = Color.Black
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Bandwidth selector chips
+                val widths = when (selectedBand) {
+                    FrequencyBand.BAND_2_4_GHZ -> listOf(ChannelWidth.WIDTH_20, ChannelWidth.WIDTH_40)
+                    FrequencyBand.BAND_5_GHZ -> listOf(ChannelWidth.WIDTH_20, ChannelWidth.WIDTH_40, ChannelWidth.WIDTH_80, ChannelWidth.WIDTH_160)
+                    FrequencyBand.BAND_6_GHZ -> listOf(ChannelWidth.WIDTH_80, ChannelWidth.WIDTH_160, ChannelWidth.WIDTH_320)
+                    FrequencyBand.UNKNOWN -> listOf(ChannelWidth.WIDTH_20, ChannelWidth.WIDTH_40, ChannelWidth.WIDTH_80)
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    widths.forEach { w ->
+                        FilterChip(
+                            selected = selectedWidth == w,
+                            onClick = { selectedWidth = w },
+                            label = { Text(w.label, fontSize = 11.sp, fontFamily = FontFamily.Monospace) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = SecondaryContainerEmerald,
+                                selectedLabelColor = Color.Black
+                            ),
+                            shape = RoundedCornerShape(10.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+    val impactHero: @Composable () -> Unit = {
+        OptimizationImpactHeroCard(
+            recommendation = recommendation,
+            migrationApplied = migrationApplied
+        )
+    }
+    val spectrumGraph: @Composable () -> Unit = {
+        BeforeAfterSpectrumGraph(
+            band = selectedBand,
+            currentChannel = recommendation.currentChannel,
+            recommendedChannel = recommendation.recommendedChannel,
+            currentScore = recommendation.currentScore,
+            recommendedScore = recommendation.recommendedScore,
+            activeAp = activeAp,
+            allAps = allAps,
+            targetWidth = selectedWidth
+        )
+    }
+    val routerDirectives: @Composable () -> Unit = {
+        RouterDirectivesCard(
+            recommendation = recommendation,
+            migrationApplied = migrationApplied,
+            onCopy = {
+                clipboardManager.setText(AnnotatedString(recommendation.routerDirectivesText))
+                Toast.makeText(context, "Router optimization directives copied to clipboard!", Toast.LENGTH_SHORT).show()
+            },
+            onSimulateMigration = {
+                viewModel.simulateChannelMigration(
+                    newChannel = recommendation.recommendedChannel,
+                    newWidth = recommendation.recommendedBandwidth
+                )
+                migrationApplied = true
+                Toast.makeText(context, "Applied migration to Channel ${recommendation.recommendedChannel} in simulation!", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+    val matrixHeader: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "Channel Congestion Matrix",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Ranked candidates scored for ${selectedBand.label} (${selectedWidth.label})",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = DarkSurfaceContainerHigh
+            ) {
+                Text(
+                    text = "${recommendation.channelScores.size} Channels",
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+    }
+
+    if (LocalWindowLayout.current.isExpanded) {
+        // Desktop: settings, result and router steps on the left, the ranked channels alongside
+        TwoColumnPage(
+            modifier = modifier,
+            primaryWeight = 1.3f,
+            secondaryWeight = 1f,
+            primary = {
+                bandControls()
+                impactHero()
+                spectrumGraph()
+                routerDirectives()
+            },
+            secondary = {
+                matrixHeader()
+                rankedScores.forEach { channelScore ->
+                    key("${channelScore.band}_${channelScore.channel}") {
+                        ChannelScoreCard(channelScore = channelScore)
+                    }
+                }
+            }
+        )
+        return
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -140,160 +314,23 @@ fun OptimizerScreen(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Band & Bandwidth Controls Row
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurfaceContainer)
-            ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = "Spectrum Band & Channel Bandwidth",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Band selector chips
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(
-                            FrequencyBand.BAND_2_4_GHZ to "2.4 GHz",
-                            FrequencyBand.BAND_5_GHZ to "5 GHz",
-                            FrequencyBand.BAND_6_GHZ to "6 GHz"
-                        ).forEach { (b, label) ->
-                            FilterChip(
-                                selected = selectedBand == b,
-                                onClick = {
-                                    selectedBand = b
-                                    // Adjust bandwidth sensible default
-                                    if (b == FrequencyBand.BAND_2_4_GHZ) selectedWidth = ChannelWidth.WIDTH_20
-                                    else if (b == FrequencyBand.BAND_5_GHZ && selectedWidth == ChannelWidth.WIDTH_320) selectedWidth = ChannelWidth.WIDTH_80
-                                },
-                                label = { Text(label, fontSize = 12.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = PrimaryContainerBlue,
-                                    selectedLabelColor = Color.Black
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Bandwidth selector chips
-                    val widths = when (selectedBand) {
-                        FrequencyBand.BAND_2_4_GHZ -> listOf(ChannelWidth.WIDTH_20, ChannelWidth.WIDTH_40)
-                        FrequencyBand.BAND_5_GHZ -> listOf(ChannelWidth.WIDTH_20, ChannelWidth.WIDTH_40, ChannelWidth.WIDTH_80, ChannelWidth.WIDTH_160)
-                        FrequencyBand.BAND_6_GHZ -> listOf(ChannelWidth.WIDTH_80, ChannelWidth.WIDTH_160, ChannelWidth.WIDTH_320)
-                        FrequencyBand.UNKNOWN -> listOf(ChannelWidth.WIDTH_20, ChannelWidth.WIDTH_40, ChannelWidth.WIDTH_80)
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        widths.forEach { w ->
-                            FilterChip(
-                                selected = selectedWidth == w,
-                                onClick = { selectedWidth = w },
-                                label = { Text(w.label, fontSize = 11.sp, fontFamily = FontFamily.Monospace) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = SecondaryContainerEmerald,
-                                    selectedLabelColor = Color.Black
-                                ),
-                                shape = RoundedCornerShape(10.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
+        item { bandControls() }
 
         // Optimization Impact Hero Card
-        item {
-            OptimizationImpactHeroCard(
-                recommendation = recommendation,
-                migrationApplied = migrationApplied
-            )
-        }
+        item { impactHero() }
 
         // Before vs. After Spectrum Balancing Canvas
-        item {
-            BeforeAfterSpectrumGraph(
-                band = selectedBand,
-                currentChannel = recommendation.currentChannel,
-                recommendedChannel = recommendation.recommendedChannel,
-                currentScore = recommendation.currentScore,
-                recommendedScore = recommendation.recommendedScore,
-                activeAp = activeAp,
-                allAps = allAps,
-                targetWidth = selectedWidth
-            )
-        }
+        item { spectrumGraph() }
 
         // Router Directives & Action Card
-        item {
-            RouterDirectivesCard(
-                recommendation = recommendation,
-                migrationApplied = migrationApplied,
-                onCopy = {
-                    clipboardManager.setText(AnnotatedString(recommendation.routerDirectivesText))
-                    Toast.makeText(context, "Router optimization directives copied to clipboard!", Toast.LENGTH_SHORT).show()
-                },
-                onSimulateMigration = {
-                    viewModel.simulateChannelMigration(
-                        newChannel = recommendation.recommendedChannel,
-                        newWidth = recommendation.recommendedBandwidth
-                    )
-                    migrationApplied = true
-                    Toast.makeText(context, "Applied migration to Channel ${recommendation.recommendedChannel} in simulation!", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
+        item { routerDirectives() }
 
         // Ranked Channel Matrix Header
-        item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Channel Congestion Matrix",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = "Ranked candidates scored for ${selectedBand.label} (${selectedWidth.label})",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = DarkSurfaceContainerHigh
-                ) {
-                    Text(
-                        text = "${recommendation.channelScores.size} Channels",
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
+        item { matrixHeader() }
 
         // Channel Score Cards
         items(
-            items = recommendation.channelScores.sortedByDescending { it.score },
+            items = rankedScores,
             key = { "${it.band}_${it.channel}" }
         ) { channelScore ->
             ChannelScoreCard(channelScore = channelScore)
@@ -318,7 +355,10 @@ private fun OptimizationImpactHeroCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .size(34.dp)
@@ -478,7 +518,10 @@ private fun RouterDirectivesCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .size(34.dp)
@@ -646,7 +689,10 @@ private fun ChannelScoreCard(channelScore: ChannelScore) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(

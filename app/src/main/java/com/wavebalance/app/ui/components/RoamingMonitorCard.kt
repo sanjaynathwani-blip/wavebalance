@@ -71,7 +71,11 @@ fun RoamingMonitorCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Weighted so the handoff badge keeps its width in narrow columns
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .size(34.dp)
@@ -102,6 +106,7 @@ fun RoamingMonitorCard(
                     }
                 }
 
+                Spacer(modifier = Modifier.width(8.dp))
                 Surface(
                     shape = RoundedCornerShape(8.dp),
                     color = DarkSurfaceContainer
