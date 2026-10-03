@@ -20,7 +20,8 @@ object MockWifiDataProvider {
             channel = 48,
             band = FrequencyBand.BAND_5_GHZ,
             standard = WifiStandard.WIFI_6,
-            ipAddress = "192.168.1.145"
+            ipAddress = "192.168.1.145",
+            channelWidth = ChannelWidth.WIDTH_80
         )
     }
 

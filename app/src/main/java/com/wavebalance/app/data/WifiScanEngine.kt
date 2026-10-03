@@ -97,7 +97,8 @@ class WifiScanEngine(private val context: Context) {
         val newFreq = FrequencyBand.channelToFrequency(newChannel, active.band)
         _activeConnection.value = active.copy(
             channel = newChannel,
-            frequencyMhz = newFreq
+            frequencyMhz = newFreq,
+            channelWidth = newWidth
         )
         _accessPoints.value = _accessPoints.value.map { ap ->
             if (ap.isConnected) {
@@ -113,12 +114,14 @@ class WifiScanEngine(private val context: Context) {
     fun simulateRoam(candidateBssid: String, candidateChannel: Int, candidateBand: FrequencyBand, candidateRssi: Int) {
         val active = _activeConnection.value ?: return
         val newFreq = FrequencyBand.channelToFrequency(candidateChannel, candidateBand)
+        val candidateAp = _accessPoints.value.firstOrNull { it.bssid.equals(candidateBssid, ignoreCase = true) }
         _activeConnection.value = active.copy(
             bssid = candidateBssid,
             channel = candidateChannel,
             band = candidateBand,
             frequencyMhz = newFreq,
-            rssi = candidateRssi
+            rssi = candidateRssi,
+            channelWidth = candidateAp?.channelWidth ?: active.channelWidth
         )
         _accessPoints.value = _accessPoints.value.map { ap ->
             when {
@@ -300,6 +303,17 @@ class WifiScanEngine(private val context: Context) {
                 "${ipInt and 0xFF}.${ipInt shr 8 and 0xFF}.${ipInt shr 16 and 0xFF}.${ipInt shr 24 and 0xFF}"
             } else ""
 
+            val cleanSsid = info.ssid?.removeSurrounding("\"") ?: ""
+            val matchingAp = _accessPoints.value.firstOrNull { it.bssid.equals(info.bssid, ignoreCase = true) }
+                ?: _accessPoints.value.firstOrNull { cleanSsid.isNotBlank() && it.ssid.equals(cleanSsid, ignoreCase = true) && it.frequencyMhz == freq }
+                ?: _accessPoints.value.firstOrNull { cleanSsid.isNotBlank() && it.ssid.equals(cleanSsid, ignoreCase = true) }
+
+            val detectedWidth = matchingAp?.channelWidth ?: when {
+                freq > 5925 -> ChannelWidth.WIDTH_160
+                freq > 5000 -> ChannelWidth.WIDTH_80
+                else -> ChannelWidth.WIDTH_20
+            }
+
             _activeConnection.value = ActiveConnectionInfo(
                 ssid = info.ssid ?: "",
                 bssid = info.bssid ?: "",
@@ -310,8 +324,9 @@ class WifiScanEngine(private val context: Context) {
                 txLinkSpeedMbps = txSpeed,
                 channel = FrequencyBand.frequencyToChannel(freq),
                 band = FrequencyBand.fromFrequency(freq),
-                standard = wifiStd,
-                ipAddress = ipStr
+                standard = if (wifiStd != WifiStandard.UNKNOWN) wifiStd else (matchingAp?.standard ?: WifiStandard.UNKNOWN),
+                ipAddress = ipStr,
+                channelWidth = detectedWidth
             )
         } else {
             _activeConnection.value = null

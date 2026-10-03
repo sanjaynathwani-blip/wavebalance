@@ -50,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -61,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.ActiveConnectionInfo
+import com.wavebalance.app.model.ChannelWidth
 import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.ui.ScanViewModel
 import com.wavebalance.app.ui.components.RfQualityGauge
@@ -103,6 +105,14 @@ fun DashboardScreen(
     // RF Quality Score calculation (based on SNR, link speed, and co-channel interference)
     val rfQualityScore = rememberRfScore(activeConn, collisionCount)
 
+    // Match connected AP from scan results to inherit exact channel width & telemetry
+    val connectedAp = remember(activeConn, allAps) {
+        allAps.firstOrNull { it.isConnected }
+            ?: allAps.firstOrNull { it.bssid.equals(activeConn?.bssid, ignoreCase = true) }
+            ?: allAps.firstOrNull { it.ssid.equals(activeConn?.cleanSsid, ignoreCase = true) && it.frequencyMhz == activeConn?.frequencyMhz }
+            ?: allAps.firstOrNull { it.ssid.equals(activeConn?.cleanSsid, ignoreCase = true) }
+    }
+
     LazyColumn(
         modifier = modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -117,6 +127,7 @@ fun DashboardScreen(
         item {
             HeroConnectionCard(
                 activeConn = activeConn,
+                connectedAp = connectedAp,
                 onQuickScan = { viewModel.triggerScan() },
                 onViewDetails = onNavigateToDetails
             )
@@ -282,6 +293,7 @@ fun LiveStatusPill(activeConn: ActiveConnectionInfo?) {
 @Composable
 fun HeroConnectionCard(
     activeConn: ActiveConnectionInfo?,
+    connectedAp: AccessPoint? = null,
     onQuickScan: () -> Unit,
     onViewDetails: () -> Unit = {}
 ) {
@@ -394,11 +406,19 @@ fun HeroConnectionCard(
                     subtext = "Optimal RF Delta",
                     modifier = Modifier.weight(1f)
                 )
+                val resolvedWidth = connectedAp?.channelWidth
+                    ?: activeConn?.effectiveChannelWidth
+                    ?: ChannelWidth.WIDTH_20
+
+                val resolvedGen = activeConn?.standard?.generation
+                    ?: connectedAp?.standard?.generation
+                    ?: "Wi-Fi"
+
                 TelemetryGridCell(
                     label = "BANDWIDTH",
                     icon = Icons.Default.Tune,
-                    value = if (activeConn?.band == FrequencyBand.BAND_6_GHZ) "160/320 MHz" else "80 MHz",
-                    subtext = activeConn?.standard?.generation ?: "Wi-Fi 6",
+                    value = resolvedWidth.label,
+                    subtext = "$resolvedGen Channel",
                     modifier = Modifier.weight(1f)
                 )
             }
