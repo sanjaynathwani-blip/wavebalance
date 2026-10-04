@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -121,6 +123,7 @@ private fun exportSpeedReport(
 /**
  * Complete Real-Time Speed, Latency, and Bufferbloat Diagnostic Screen.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SpeedDiagnosticScreen(
     viewModel: ScanViewModel,
@@ -193,16 +196,17 @@ fun SpeedDiagnosticScreen(
         }
     }
     val actionControls: @Composable () -> Unit = {
-        Row(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (!isRunning) {
                 Button(
                     onClick = {
                         if (mlabConsentGiven) viewModel.startFullDiagnostic() else showConsentDialog = true
                     },
-                    modifier = Modifier.weight(1.2f),
+                    modifier = Modifier,
                     colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
                     shape = RoundedCornerShape(12.dp)
                 ) {
@@ -222,7 +226,7 @@ fun SpeedDiagnosticScreen(
 
                 OutlinedButton(
                     onClick = { viewModel.startQuickPing() },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier,
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Icon(
@@ -246,7 +250,7 @@ fun SpeedDiagnosticScreen(
                                 linkSpeedMbps = activeConn?.linkSpeedMbps
                             )
                         },
-                        modifier = Modifier.weight(0.9f),
+                        modifier = Modifier,
                         colors = ButtonDefaults.buttonColors(containerColor = CardSurfaceSlate),
                         shape = RoundedCornerShape(12.dp)
                     ) {

@@ -146,9 +146,10 @@ fun OptimizerScreen(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 // Band selector chips
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     listOf(
                         FrequencyBand.BAND_2_4_GHZ to "2.4 GHz",
@@ -178,9 +179,10 @@ fun OptimizerScreen(
                 // Bandwidth selector chips
                 val widths = ChannelWidth.supportedForBand(selectedBand)
 
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     widths.forEach { w ->
                         FilterChip(
@@ -251,7 +253,7 @@ fun OptimizerScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Channel Congestion Matrix",
                     style = MaterialTheme.typography.titleMedium,
@@ -417,6 +419,7 @@ private fun OptimizationImpactHeroCard(
                     channel = if (recommendation.currentChannelEvaluated) "Ch ${recommendation.currentChannel}" else "Unknown",
                     score = recommendation.currentScore,
                     color = if (recommendation.currentScore >= 75) PrimaryContainerBlue else TertiaryContainerAmber,
+                    modifier = Modifier.weight(1f),
                     evaluated = recommendation.currentChannelEvaluated
                 )
 
@@ -432,7 +435,8 @@ private fun OptimizationImpactHeroCard(
                     label = "RECOMMENDED",
                     channel = "Ch ${recommendation.recommendedChannel}",
                     score = recommendation.recommendedScore,
-                    color = SecondaryContainerEmerald
+                    color = SecondaryContainerEmerald,
+                    modifier = Modifier.weight(1f)
                 )
             }
 
@@ -476,12 +480,13 @@ private fun ScoreBox(
     channel: String,
     score: Int,
     color: Color,
+    modifier: Modifier = Modifier,
     evaluated: Boolean = true
 ) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = DarkSurfaceContainerHigh,
-        modifier = Modifier.width(130.dp)
+        modifier = modifier
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -678,6 +683,7 @@ private fun StepItem(step: RouterStep) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ChannelScoreCard(channelScore: ChannelScore) {
     var expanded by rememberSaveable { mutableStateOf(false) }
@@ -709,7 +715,7 @@ private fun ChannelScoreCard(channelScore: ChannelScore) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        FlowRow(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(
                                 text = "Ch ${channelScore.channel} · center ${FrequencyBand.frequencyToChannel(channelScore.centerFrequencyMhz)}",
                                 style = MaterialTheme.typography.titleMedium,

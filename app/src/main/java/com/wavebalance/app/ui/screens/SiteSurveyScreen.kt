@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -84,6 +86,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SiteSurveyScreen(
     viewModel: ScanViewModel,
@@ -205,9 +208,10 @@ fun SiteSurveyScreen(
 
         // 4. Quick Actions (Simulate Walkthrough, Export, Clear)
         item {
-            Row(
+            FlowRow(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
                     onClick = {
@@ -215,7 +219,7 @@ fun SiteSurveyScreen(
                         val bssid = activeConn?.bssid ?: "1a:2b:3c:4d:5e:6f"
                         viewModel.populateSimulatedWalkthrough(ssid, bssid)
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier,
                     colors = ButtonDefaults.buttonColors(containerColor = CardSurfaceSlate),
                     shape = RoundedCornerShape(10.dp)
                 ) {
@@ -233,7 +237,7 @@ fun SiteSurveyScreen(
                     onClick = {
                         exportSurveyReport(context, surveyPoints, surveyAnalytics, activeConn?.cleanSsid ?: "Wi-Fi")
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier,
                     colors = ButtonDefaults.buttonColors(containerColor = CardSurfaceSlate),
                     shape = RoundedCornerShape(10.dp),
                     enabled = surveyPoints.isNotEmpty()
@@ -250,7 +254,7 @@ fun SiteSurveyScreen(
 
                 OutlinedButton(
                     onClick = { viewModel.clearSurveyPoints() },
-                    modifier = Modifier.weight(0.9f),
+                    modifier = Modifier,
                     shape = RoundedCornerShape(10.dp),
                     enabled = surveyPoints.isNotEmpty()
                 ) {
@@ -705,7 +709,7 @@ private fun SurveyPointItemCard(
 
                 IconButton(
                     onClick = onDelete,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Clear,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -126,7 +127,7 @@ fun NavigationPanel(
                                 unselectedTextColor = MaterialTheme.colorScheme.onSurface
                             ),
                             modifier = Modifier
-                                .height(44.dp)
+                                .heightIn(min = 56.dp)
                                 .padding(vertical = 2.dp)
                         )
                     }
@@ -159,19 +160,24 @@ fun AppNavigationRail(
             AppLogo(modifier = Modifier.padding(vertical = 8.dp))
         }
     ) {
-        Spacer(modifier = Modifier.height(8.dp))
-        AppDestination.entries.forEach { destination ->
-            NavigationRailItem(
-                icon = { DestinationIcon(destination, collisionCount) },
-                label = { Text(destination.label, maxLines = 1) },
-                selected = destination == current,
-                onClick = { onNavigate(destination) },
-                colors = NavigationRailItemDefaults.colors(
-                    indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary
+        Column(
+            modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(8.dp))
+            AppDestination.entries.forEach { destination ->
+                NavigationRailItem(
+                    icon = { DestinationIcon(destination, collisionCount) },
+                    label = { Text(destination.label, maxLines = 1) },
+                    selected = destination == current,
+                    onClick = { onNavigate(destination) },
+                    colors = NavigationRailItemDefaults.colors(
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary
+                    )
                 )
-            )
+            }
         }
     }
 }

@@ -1,7 +1,7 @@
 package com.wavebalance.app.ui.adaptive
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -39,28 +40,36 @@ fun TwoColumnPage(
     primary: @Composable ColumnScope.() -> Unit,
     secondary: @Composable ColumnScope.() -> Unit
 ) {
-    Box(
+    val fontScale = LocalDensity.current.fontScale
+    BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter
     ) {
-        Row(
-            modifier = Modifier
-                .widthIn(max = MaxContentWidth)
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(contentPadding),
-            horizontalArrangement = Arrangement.spacedBy(columnSpacing)
-        ) {
-            Column(
-                modifier = Modifier.weight(primaryWeight),
-                verticalArrangement = Arrangement.spacedBy(itemSpacing),
-                content = primary
-            )
-            Column(
-                modifier = Modifier.weight(secondaryWeight),
-                verticalArrangement = Arrangement.spacedBy(itemSpacing),
-                content = secondary
-            )
+        val scrollState = rememberScrollState()
+        val pageModifier = Modifier
+            .widthIn(max = MaxContentWidth)
+            .fillMaxWidth()
+            .verticalScroll(scrollState)
+            .padding(contentPadding)
+        // Navigation and system insets have already consumed space here.
+        if (AdaptiveLayoutPolicy.useTwoPanes(maxWidth.value, maxHeight.value, fontScale)) {
+            Row(modifier = pageModifier, horizontalArrangement = Arrangement.spacedBy(columnSpacing)) {
+                Column(
+                    modifier = Modifier.weight(primaryWeight),
+                    verticalArrangement = Arrangement.spacedBy(itemSpacing),
+                    content = primary
+                )
+                Column(
+                    modifier = Modifier.weight(secondaryWeight),
+                    verticalArrangement = Arrangement.spacedBy(itemSpacing),
+                    content = secondary
+                )
+            }
+        } else {
+            Column(modifier = pageModifier, verticalArrangement = Arrangement.spacedBy(itemSpacing)) {
+                primary()
+                secondary()
+            }
         }
     }
 }

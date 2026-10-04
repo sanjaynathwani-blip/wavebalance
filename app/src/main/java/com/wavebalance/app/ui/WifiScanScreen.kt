@@ -50,6 +50,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -71,6 +74,7 @@ enum class ApSortOption(val label: String) {
     SSID("Name")
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun WifiScanScreen(
     viewModel: ScanViewModel,
@@ -279,73 +283,68 @@ fun WifiScanScreen(
                 }
 
                 // Secondary Action Row: Sort by & Home AP Toggle & Scan Button
-                Row(
+                FlowRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Sort Button
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = DarkSurfaceContainerHigh,
+                        modifier = Modifier.heightIn(min = 48.dp)
                     ) {
-                        // Sort Button
-                        Surface(
-                            shape = RoundedCornerShape(10.dp),
-                            color = DarkSurfaceContainerHigh,
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Button(
-                                onClick = {
-                                    sortOption = when (sortOption) {
-                                        ApSortOption.SIGNAL -> ApSortOption.CHANNEL
-                                        ApSortOption.CHANNEL -> ApSortOption.SSID
-                                        ApSortOption.SSID -> ApSortOption.SIGNAL
-                                    }
-                                },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Transparent,
-                                    contentColor = MaterialTheme.colorScheme.onSurface
-                                )
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.SwapVert,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Sort: ${sortOption.label}",
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-
-                        // Home Only Filter
-                        FilterChip(
-                            selected = showOnlyHomeAps,
-                            onClick = { showOnlyHomeAps = !showOnlyHomeAps },
-                            label = {
-                                Text(
-                                    text = if (showOnlyHomeAps) "Home Only" else "All APs",
-                                    fontSize = 11.sp
-                                )
+                        Button(
+                            onClick = {
+                                sortOption = when (sortOption) {
+                                    ApSortOption.SIGNAL -> ApSortOption.CHANNEL
+                                    ApSortOption.CHANNEL -> ApSortOption.SSID
+                                    ApSortOption.SSID -> ApSortOption.SIGNAL
+                                }
                             },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = PrimaryContainerBlue.copy(alpha = 0.2f),
-                                selectedLabelColor = PrimaryContainerBlue
-                            ),
-                            modifier = Modifier.height(34.dp)
-                        )
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color.Transparent,
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SwapVert,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "Sort: ${sortOption.label}",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
                     }
+
+                    // Home Only Filter
+                    FilterChip(
+                        selected = showOnlyHomeAps,
+                        onClick = { showOnlyHomeAps = !showOnlyHomeAps },
+                        label = {
+                            Text(
+                                text = if (showOnlyHomeAps) "Home Only" else "All APs",
+                                fontSize = 11.sp
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = PrimaryContainerBlue.copy(alpha = 0.2f),
+                            selectedLabelColor = PrimaryContainerBlue
+                        ),
+                        modifier = Modifier.heightIn(min = 48.dp)
+                    )
 
                     // Scan Now Button
                     Button(
                         onClick = { viewModel.triggerScan() },
                         enabled = scanStatus !is ScanStatus.Scanning,
                         shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.height(34.dp),
+                        modifier = Modifier.heightIn(min = 48.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = PrimaryContainerBlue,

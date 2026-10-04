@@ -373,7 +373,8 @@ fun ParabolicRadarGraph(
                 if (collisionChannels.isNotEmpty()) {
                     Surface(
                         shape = RoundedCornerShape(8.dp),
-                        color = TertiaryContainerAmber.copy(alpha = 0.15f)
+                        color = TertiaryContainerAmber.copy(alpha = 0.15f),
+                        modifier = Modifier.weight(1f, fill = false)
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
@@ -399,12 +400,15 @@ fun ParabolicRadarGraph(
                         text = "Airspace clear of co-channel collisions",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        color = SecondaryContainerEmerald
+                        color = SecondaryContainerEmerald,
+                        modifier = Modifier.weight(1f, fill = false)
                     )
                 }
 
                 Text(
                     text = "${apsInBand.size} APs in band",
+                    modifier = Modifier.padding(start = 8.dp),
+                    softWrap = false,
                     fontSize = 11.sp,
                     fontFamily = FontFamily.Monospace,
                     color = MaterialTheme.colorScheme.onSurfaceVariant

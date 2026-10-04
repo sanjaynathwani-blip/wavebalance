@@ -54,6 +54,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
+import com.wavebalance.app.ui.adaptive.AdaptiveLayoutPolicy
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -101,7 +103,8 @@ fun ApDetailScreen(
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val isWideLayout = maxWidth >= 650.dp
+        val isWideLayout = AdaptiveLayoutPolicy.useTwoPanes(maxWidth.value, maxHeight.value, LocalDensity.current.fontScale)
+        val listPaneWidth = (maxWidth * 0.35f).coerceIn(280.dp, 360.dp)
 
         if (isWideLayout) {
             // Adaptive Two-Pane Layout for Foldables / Tablets / Desktop Emulator
@@ -110,7 +113,7 @@ fun ApDetailScreen(
                 // Wide enough for an SSID, the Active badge and the signal chip side by side
                 Card(
                     modifier = Modifier
-                        .width(400.dp)
+                        .width(listPaneWidth)
                         .fillMaxHeight()
                         .padding(12.dp),
                     shape = RoundedCornerShape(16.dp),

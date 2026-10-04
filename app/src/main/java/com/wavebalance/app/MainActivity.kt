@@ -17,34 +17,31 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -73,6 +70,7 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -84,12 +82,12 @@ import com.wavebalance.app.data.ScanStatus
 import com.wavebalance.app.model.SurveyPoint
 import com.wavebalance.app.ui.ScanViewModel
 import com.wavebalance.app.ui.WifiScanScreen
+import com.wavebalance.app.ui.adaptive.AdaptiveLayoutPolicy
 import com.wavebalance.app.ui.adaptive.LocalWindowLayout
 import com.wavebalance.app.ui.adaptive.WindowLayout
 import com.wavebalance.app.ui.components.PermissionRationaleModal
 import com.wavebalance.app.ui.navigation.AppBottomBar
 import com.wavebalance.app.ui.navigation.AppDestination
-import com.wavebalance.app.ui.navigation.AppLogo
 import com.wavebalance.app.ui.navigation.AppNavigationRail
 import com.wavebalance.app.ui.navigation.NavigationPanel
 import com.wavebalance.app.ui.screens.ApDetailScreen
@@ -97,7 +95,6 @@ import com.wavebalance.app.ui.screens.DashboardScreen
 import com.wavebalance.app.ui.screens.OptimizerScreen
 import com.wavebalance.app.ui.screens.SiteSurveyScreen
 import com.wavebalance.app.ui.screens.SpeedDiagnosticScreen
-import com.wavebalance.app.ui.theme.SecondaryContainerEmerald
 import com.wavebalance.app.ui.theme.TertiaryContainerAmber
 import com.wavebalance.app.ui.theme.WaveBalanceTheme
 import java.text.DateFormat
@@ -125,6 +122,7 @@ fun WaveBalanceAdaptiveApp(
     var showPermissionModal by rememberSaveable { mutableStateOf(false) }
     var isEditingText by remember { mutableStateOf(false) }
     val destinationState = rememberSaveableStateHolder()
+    val fontScale = LocalDensity.current.fontScale
 
     val navigate: (AppDestination) -> Unit = { destination ->
         if (destination != currentDestination) {
@@ -212,6 +210,8 @@ fun WaveBalanceAdaptiveApp(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .imePadding()
             .focusRequester(focusRequester)
             .onKeyEvent { keyEvent ->
                 if (isEditingText || keyEvent.type != KeyEventType.KeyUp ||
@@ -255,14 +255,18 @@ fun WaveBalanceAdaptiveApp(
             .focusable()
     ) {
         val windowLayout = WindowLayout.fromWidth(maxWidth)
+        val navigationLayout = when {
+            windowLayout.isCompact -> WindowLayout.COMPACT
+            AdaptiveLayoutPolicy.useNavigationPanel(maxWidth.value, maxHeight.value, fontScale) -> WindowLayout.EXPANDED
+            else -> WindowLayout.MEDIUM
+        }
 
         CompositionLocalProvider(LocalWindowLayout provides windowLayout) {
-            when (windowLayout) {
+            when (navigationLayout) {
                 WindowLayout.EXPANDED -> {
                     Row(
                         modifier = Modifier
                             .fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
                     ) {
                         NavigationPanel(
                             current = currentDestination,
@@ -270,14 +274,12 @@ fun WaveBalanceAdaptiveApp(
                             activeConnection = activeConn,
                             isMockMode = isMockMode,
                             onNavigate = navigate,
-                            onMockModeChange = { viewModel.toggleMockMode(it) },
-                            modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)
+                            onMockModeChange = { viewModel.toggleMockMode(it) }
                         )
                         Column(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .windowInsetsPadding(WindowInsets.statusBars)
                         ) {
                             DesktopTopBar(
                                 destination = currentDestination,
@@ -301,7 +303,6 @@ fun WaveBalanceAdaptiveApp(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxHeight()
-                                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom + WindowInsetsSides.End))
                         ) {
                             CompactTopBar(
                                 destination = currentDestination,
@@ -478,82 +479,53 @@ private fun CompactTopBar(
     onExport: () -> Unit,
     onScan: () -> Unit
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
     TopAppBar(
         title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                AppLogo()
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "WaveBalance",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (isMockMode) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            SimulatedChip()
-                        }
-                    }
-                    Text(
-                        text = destination.subtitle,
-                        style = MaterialTheme.typography.labelSmall,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+            Column {
+                Text(
+                    text = "WaveBalance",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = (if (isMockMode) "Simulated · " else "") + destination.label,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         },
         actions = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "Sim",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (isMockMode) TertiaryContainerAmber else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Switch(
-                    checked = isMockMode,
-                    onCheckedChange = onMockModeChange,
-                    modifier = Modifier.height(28.dp),
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = TertiaryContainerAmber,
-                        checkedTrackColor = TertiaryContainerAmber.copy(alpha = 0.3f)
-                    )
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                if (showSpeedAction) {
-                    IconButton(onClick = onToggleSpeedTest) {
-                        Icon(
-                            imageVector = Icons.Default.Speed,
-                            contentDescription = "Speed & Latency Diagnostic",
-                            tint = if (destination == AppDestination.SPEED) SecondaryContainerEmerald else MaterialTheme.colorScheme.primary
-                        )
-                    }
+            IconButton(onClick = onScan) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh scan")
+            }
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More actions")
                 }
-                IconButton(onClick = onExport) {
-                    Icon(
-                        imageVector = Icons.Default.Share,
-                        contentDescription = "Export Audit Report",
-                        tint = MaterialTheme.colorScheme.primary
+                DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                    DropdownMenuItem(
+                        text = { Text(if (isMockMode) "Use live Wi-Fi" else "Use simulated data") },
+                        onClick = { menuExpanded = false; onMockModeChange(!isMockMode) }
                     )
-                }
-                IconButton(onClick = onScan) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Refresh Scan",
-                        tint = MaterialTheme.colorScheme.primary
+                    if (showSpeedAction) DropdownMenuItem(
+                        text = { Text("Speed & latency diagnostic") },
+                        onClick = { menuExpanded = false; onToggleSpeedTest() },
+                        leadingIcon = { Icon(Icons.Default.Speed, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Export audit report") },
+                        onClick = { menuExpanded = false; onExport() },
+                        leadingIcon = { Icon(Icons.Default.Share, contentDescription = null) }
                     )
                 }
             }
         },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background
-        )
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
     )
 }
 
