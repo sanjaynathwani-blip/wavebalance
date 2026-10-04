@@ -17,6 +17,7 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.ActiveConnectionInfo
+import com.wavebalance.app.model.ChannelPlan
 import com.wavebalance.app.model.ChannelWidth
 import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.model.InformationElements
@@ -103,11 +104,15 @@ class WifiScanEngine(private val context: Context) {
         }
     }
 
-    fun simulateChannelMigration(newChannel: Int, newWidth: ChannelWidth = ChannelWidth.WIDTH_80) {
+    fun simulateChannelMigration(newChannel: Int, newWidth: ChannelWidth, band: FrequencyBand, centerFrequencyMhz: Int) {
+        if (!_isMockMode.value) return
         val active = _activeConnection.value ?: return
-        val newFreq = FrequencyBand.channelToFrequency(newChannel, active.band)
+        val block = ChannelPlan.blocksForPrimary(newChannel, band, newWidth)
+            .firstOrNull { it.centerFrequencyMhz == centerFrequencyMhz } ?: return
+        val newFreq = block.primaryFrequencyMhz
         _activeConnection.value = active.copy(
             channel = newChannel,
+            band = band,
             frequencyMhz = newFreq,
             channelWidth = newWidth
         )
@@ -115,8 +120,9 @@ class WifiScanEngine(private val context: Context) {
             if (ap.isConnected) {
                 ap.copy(
                     channel = newChannel,
+                    band = band,
                     frequencyMhz = newFreq,
-                    centerFrequencyMhz = newFreq,
+                    centerFrequencyMhz = centerFrequencyMhz,
                     channelWidth = newWidth
                 )
             } else ap
