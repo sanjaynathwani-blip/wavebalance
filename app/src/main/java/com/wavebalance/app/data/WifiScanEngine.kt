@@ -22,9 +22,11 @@ import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.model.InformationElements
 import com.wavebalance.app.model.RawInformationElement
 import com.wavebalance.app.model.WifiStandard
+import com.wavebalance.app.model.withConnectedBssid
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +65,7 @@ class WifiScanEngine(private val context: Context) {
     val taggedHomeBssids: StateFlow<Set<String>> = _taggedHomeBssids.asStateFlow()
 
     private var lastScanTime = 0L
+    private var mockScanJob: Job? = null
     private val scanCooldownMs = 25_000L // Android 4-scans/2-min rate limit (~30s window)
 
     private val scanReceiver = object : BroadcastReceiver() {
@@ -83,14 +86,20 @@ class WifiScanEngine(private val context: Context) {
     }
 
     fun setMockMode(enabled: Boolean) {
+        if (_isMockMode.value == enabled) return
+        mockScanJob?.cancel()
+        mockScanJob = null
         _isMockMode.value = enabled
+        _accessPoints.value = emptyList()
+        _activeConnection.value = null
+        _scanStatus.value = ScanStatus.Idle
         if (enabled) {
             _accessPoints.value = MockWifiDataProvider.getMockAccessPoints()
             _activeConnection.value = MockWifiDataProvider.getMockActiveConnection()
             _scanStatus.value = ScanStatus.Success(_accessPoints.value.size, System.currentTimeMillis())
         } else {
-            refreshCachedScanResults()
             updateActiveConnectionInfo()
+            refreshCachedScanResults()
         }
     }
 
@@ -182,10 +191,13 @@ class WifiScanEngine(private val context: Context) {
 
     fun triggerScan() {
         if (_isMockMode.value) {
+            mockScanJob?.cancel()
             _scanStatus.value = ScanStatus.Scanning
-            scope.launch {
+            mockScanJob = scope.launch {
                 delay(800)
+                if (!_isMockMode.value) return@launch
                 _accessPoints.value = MockWifiDataProvider.getMockAccessPoints().shuffled()
+                _activeConnection.value = MockWifiDataProvider.getMockActiveConnection()
                 _scanStatus.value = ScanStatus.Success(_accessPoints.value.size, System.currentTimeMillis())
             }
             return
@@ -234,6 +246,7 @@ class WifiScanEngine(private val context: Context) {
     }
 
     private fun processScanResults(resultsUpdated: Boolean) {
+        if (_isMockMode.value) return
         val wifi = wifiManager ?: return
         if (!hasPermissions()) {
             return
@@ -350,6 +363,7 @@ class WifiScanEngine(private val context: Context) {
         } else {
             _activeConnection.value = null
         }
+        _accessPoints.value = _accessPoints.value.withConnectedBssid(_activeConnection.value?.bssid)
     }
 
     private fun registerReceivers() {
@@ -376,7 +390,9 @@ class WifiScanEngine(private val context: Context) {
 
             override fun onLost(network: Network) {
                 scope.launch {
-                    _activeConnection.value = null
+                    // A handover may already have another Wi-Fi connection. The refresh
+                    // also respects mock mode and updates cached AP connection badges.
+                    updateActiveConnectionInfo()
                 }
             }
         }
@@ -401,5 +417,6 @@ class WifiScanEngine(private val context: Context) {
                 // Ignore
             }
         }
+        scope.cancel()
     }
 }
