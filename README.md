@@ -175,7 +175,7 @@ Run tests with:
 **[⬇ Download WaveBalance.apk](../../releases/latest/download/WaveBalance.apk)** (Android 8.0 or later)
 
 1. Open the link on your Android device or Googlebook and download the APK.
-2. Open it from Chrome's download message or the **Files** app. The first time, Android asks you to allow that app to install unknown apps: turn it on, go back, and tap **Install**.
+2. Open it from Chrome's download message or the **Files** app. The first time, Android asks you to allow that app to install unknown apps: turn it on, go back, and tap **Install**. Google Play Protect may warn that it doesn't recognise the developer, because WaveBalance isn't on the Play Store: tap **More details → Install anyway** (or let it scan the app first).
 3. Open WaveBalance and allow **location** and **nearby devices** when asked. Android only shows Wi-Fi networks to apps with these permissions, and only while **Location** is switched on in quick settings; WaveBalance doesn't read your location.
 
 Updates install over the previous version and keep your settings. Each release lists the APK's SHA-256 checksum in `SHA256SUMS` if you want to check your download.
