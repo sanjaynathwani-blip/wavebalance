@@ -55,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -100,11 +101,11 @@ fun OptimizerScreen(
     val clipboardManager = LocalClipboardManager.current
 
     // Active band or selected band
-    var selectedBand by remember {
+    var selectedBand by rememberSaveable {
         mutableStateOf(activeConn?.band ?: FrequencyBand.BAND_5_GHZ)
     }
 
-    var selectedWidth by remember {
+    var selectedWidth by rememberSaveable {
         mutableStateOf(ChannelWidth.defaultForBand(selectedBand))
     }
 
@@ -124,7 +125,7 @@ fun OptimizerScreen(
         )
     }
 
-    var migrationApplied by remember { mutableStateOf(false) }
+    var migrationApplied by rememberSaveable(isMockMode, selectedBand, selectedWidth) { mutableStateOf(false) }
 
     val rankedScores = remember(recommendation) {
         recommendation.channelScores.sortedByDescending { it.score }
@@ -519,7 +520,7 @@ private fun RouterDirectivesCard(
     // Null outside simulated data: migrating would overwrite real readings with made-up ones
     onSimulateMigration: (() -> Unit)?
 ) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -679,7 +680,7 @@ private fun StepItem(step: RouterStep) {
 
 @Composable
 private fun ChannelScoreCard(channelScore: ChannelScore) {
-    var expanded by remember { mutableStateOf(false) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
     val scoreColor = when (channelScore.rating) {
         ChannelRating.OPTIMAL -> SecondaryContainerEmerald
