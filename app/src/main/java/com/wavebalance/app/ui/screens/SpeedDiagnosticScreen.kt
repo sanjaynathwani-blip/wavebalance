@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -46,9 +48,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,15 +62,20 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.wavebalance.app.data.MLabNdt7Server
 import com.wavebalance.app.model.ApplicationRating
 import com.wavebalance.app.model.BufferbloatGrade
 import com.wavebalance.app.model.DiagnosticPhase
+import com.wavebalance.app.model.DiagnosticState
 import com.wavebalance.app.model.SpeedDiagnosticEngine
 import com.wavebalance.app.model.SpeedDiagnosticResult
+import com.wavebalance.app.model.ThroughputResult
 import com.wavebalance.app.ui.ScanViewModel
 import com.wavebalance.app.ui.adaptive.LocalWindowLayout
 import com.wavebalance.app.ui.adaptive.TwoColumnPage
@@ -89,13 +100,13 @@ private fun exportSpeedReport(
     result: SpeedDiagnosticResult,
     ssid: String,
     bssid: String,
-    theoreticalLinkMbps: Int
+    linkSpeedMbps: Int?
 ) {
     val report = SpeedDiagnosticEngine.generateSpeedReportMarkdown(
         result = result,
         activeSsid = ssid,
         bssid = bssid,
-        theoreticalLinkSpeedMbps = theoreticalLinkMbps
+        linkSpeedMbps = linkSpeedMbps
     )
     val sendIntent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
@@ -120,6 +131,19 @@ fun SpeedDiagnosticScreen(
     val context = LocalContext.current
 
     val result = diagnosticState.result
+    val mlabConsentGiven by viewModel.mlabConsentGiven.collectAsState()
+    var showConsentDialog by remember { mutableStateOf(false) }
+
+    if (showConsentDialog) {
+        MLabConsentDialog(
+            onAccept = {
+                showConsentDialog = false
+                viewModel.giveMlabConsent()
+                viewModel.startFullDiagnostic()
+            },
+            onDismiss = { showConsentDialog = false }
+        )
+    }
     val theoreticalMbps = activeConn?.linkSpeedMbps ?: 433
 
     val linkHeader: @Composable () -> Unit = {
@@ -147,7 +171,9 @@ fun SpeedDiagnosticScreen(
                     currentSpeedMbps = diagnosticState.currentSpeedMbps,
                     currentPingMs = diagnosticState.currentPingMs,
                     phase = diagnosticState.phase,
-                    progress = diagnosticState.progress
+                    progress = diagnosticState.progress,
+                    showLatency = diagnosticState.phase == DiagnosticPhase.PING_JITTER ||
+                        (result != null && result.throughput == null)
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
@@ -172,7 +198,9 @@ fun SpeedDiagnosticScreen(
         ) {
             if (!isRunning) {
                 Button(
-                    onClick = { viewModel.startFullDiagnostic() },
+                    onClick = {
+                        if (mlabConsentGiven) viewModel.startFullDiagnostic() else showConsentDialog = true
+                    },
                     modifier = Modifier.weight(1.2f),
                     colors = ButtonDefaults.buttonColors(containerColor = NeonCyan),
                     shape = RoundedCornerShape(12.dp)
@@ -212,9 +240,9 @@ fun SpeedDiagnosticScreen(
                             exportSpeedReport(
                                 context = context,
                                 result = result,
-                                ssid = activeConn?.cleanSsid ?: "Wi-Fi",
-                                bssid = activeConn?.bssid ?: "00:00:00:00:00:00",
-                                theoreticalLinkMbps = theoreticalMbps
+                                ssid = activeConn?.cleanSsid ?: "Not connected",
+                                bssid = activeConn?.bssid ?: "Not connected",
+                                linkSpeedMbps = activeConn?.linkSpeedMbps
                             )
                         },
                         modifier = Modifier.weight(0.9f),
@@ -274,21 +302,23 @@ fun SpeedDiagnosticScreen(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                val throughput = result?.throughput
                 MetricMiniCard(
                     title = "DOWNLOAD",
-                    value = if (result != null) "${String.format(Locale.US, "%.1f", result.downloadSpeedMbps)} Mbps" else "--",
-                    subtext = if (result != null) "Peak ${String.format(Locale.US, "%.1f", result.peakDownloadMbps)}" else "Goodput",
+                    value = if (throughput != null) "${String.format(Locale.US, "%.1f", throughput.downloadSpeedMbps)} Mbps" else "--",
+                    subtext = if (throughput != null) "Peak ${String.format(Locale.US, "%.1f", throughput.peakDownloadMbps)}" else "Goodput",
                     valueColor = NeonCyan,
                     modifier = Modifier.weight(1f)
                 )
                 MetricMiniCard(
                     title = "UPLOAD",
-                    value = if (result != null) "${String.format(Locale.US, "%.1f", result.uploadSpeedMbps)} Mbps" else "--",
+                    value = if (throughput != null) "${String.format(Locale.US, "%.1f", throughput.uploadSpeedMbps)} Mbps" else "--",
                     subtext = "Uplink rate",
                     valueColor = PrimaryContainerBlue,
                     modifier = Modifier.weight(1f)
                 )
             }
+            TestSourceNote(state = diagnosticState)
         }
     }
     val telemetryGraph: @Composable () -> Unit = {
@@ -309,9 +339,9 @@ fun SpeedDiagnosticScreen(
             secondary = {
                 metricGrid()
                 telemetryGraph()
-                if (result != null) {
-                    BufferbloatAssessmentCard(result = result)
-                    QosApplicationMatrixCard(qos = result.qosAssessment)
+                result?.throughput?.let { throughput ->
+                    BufferbloatAssessmentCard(result = result, throughput = throughput)
+                    QosApplicationMatrixCard(qos = throughput.qosAssessment)
                 }
             }
         )
@@ -339,14 +369,14 @@ fun SpeedDiagnosticScreen(
         item { metricGrid() }
 
         // 5. Bufferbloat & Loaded Latency Card
-        if (result != null) {
+        result?.throughput?.let { throughput ->
             item {
-                BufferbloatAssessmentCard(result = result)
+                BufferbloatAssessmentCard(result = result, throughput = throughput)
             }
 
             // 6. Quality of Service (QoS) Application Suitability Matrix
             item {
-                QosApplicationMatrixCard(qos = result.qosAssessment)
+                QosApplicationMatrixCard(qos = throughput.qosAssessment)
             }
         }
 
@@ -476,8 +506,8 @@ private fun MetricMiniCard(
  * Card explaining Bufferbloat grade and SQM recommendation.
  */
 @Composable
-private fun BufferbloatAssessmentCard(result: SpeedDiagnosticResult) {
-    val grade = result.bufferbloatGrade
+private fun BufferbloatAssessmentCard(result: SpeedDiagnosticResult, throughput: ThroughputResult) {
+    val grade = throughput.bufferbloatGrade
     val gradeColor = when (grade) {
         BufferbloatGrade.A_PLUS -> NeonCyan
         BufferbloatGrade.A -> SecondaryContainerEmerald
@@ -508,11 +538,19 @@ private fun BufferbloatAssessmentCard(result: SpeedDiagnosticResult) {
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "+${String.format(Locale.US, "%.1f", result.bufferbloatDeltaMs)} ms under load",
+                        text = "+${String.format(Locale.US, "%.1f", throughput.bufferbloatDeltaMs)} ms under load",
                         fontSize = 14.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.SemiBold,
                         color = gradeColor
+                    )
+                    Text(
+                        text = "Idle ${String.format(Locale.US, "%.0f", result.unloadedPingMs)} ms · " +
+                            "downloading ${String.format(Locale.US, "%.0f", throughput.loadedDownloadPingMs)} ms · " +
+                            "uploading ${String.format(Locale.US, "%.0f", throughput.loadedUploadPingMs)} ms",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -684,4 +722,74 @@ private fun QosRow(
             )
         }
     }
+}
+
+/**
+ * Where the numbers came from, or why the test failed, with a link to M-Lab's privacy policy.
+ */
+@Composable
+private fun TestSourceNote(state: DiagnosticState) {
+    val result = state.result
+    val throughput = result?.throughput
+    val failed = state.phase == DiagnosticPhase.FAILED
+    val text = when {
+        failed -> state.error ?: "The test failed."
+        result == null -> "Tests run on Measurement Lab (M-Lab) servers. M-Lab publishes each full test's " +
+            "results, including your IP address, as open data. Ping Only doesn't run a test, so nothing is published."
+        throughput == null -> "Ping only, to ${result.serverName ?: "the test server"}. Download, upload and bufferbloat weren't measured."
+        else -> "Measured on ${result.serverName ?: "an M-Lab server"} · ${throughput.dataUsedBytes / 1_000_000} MB used · " +
+            "published by M-Lab as open data.\nOne connection each way, as M-Lab measures it. Tests that use several " +
+            "connections at once, like Speedtest.net, usually show more."
+    }
+    val uriHandler = LocalUriHandler.current
+    Column(modifier = Modifier.padding(horizontal = 4.dp)) {
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            color = if (failed) ErrorRed else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = "M-Lab privacy policy",
+            fontSize = 11.sp,
+            color = PrimaryContainerBlue,
+            textDecoration = TextDecoration.Underline,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .clickable { uriHandler.openUri(MLabNdt7Server.PRIVACY_POLICY_URL) }
+        )
+    }
+}
+
+/**
+ * M-Lab requires informed consent before a client's first test, because results
+ * (including the IP address) are published.
+ */
+@Composable
+private fun MLabConsentDialog(onAccept: () -> Unit, onDismiss: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Speed tests use M-Lab") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "The download and upload test runs on Measurement Lab (M-Lab), an open platform " +
+                        "for internet research that Google's speed test also uses."
+                )
+                Text(
+                    "M-Lab publishes every test result as open data, including your IP address and " +
+                        "the date and time of the test. Ping Only doesn't run a test, so nothing is published."
+                )
+                Text(
+                    text = "Read M-Lab's privacy policy",
+                    color = PrimaryContainerBlue,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable { uriHandler.openUri(MLabNdt7Server.PRIVACY_POLICY_URL) }
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = onAccept) { Text("Agree and run test") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
+    )
 }

@@ -1,19 +1,28 @@
 package com.wavebalance.app.model
 
-import java.net.InetSocketAddress
-import java.net.Socket
+import java.io.IOException
 import java.text.SimpleDateFormat
+import java.util.Collections
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.pow
-import kotlin.math.roundToInt
 import kotlin.math.sqrt
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -24,8 +33,8 @@ enum class DiagnosticPhase(val displayName: String) {
     PING_JITTER("Probing Latency & Jitter"),
     DOWNLOAD("Testing Download Throughput"),
     UPLOAD("Testing Upload Throughput"),
-    BUFFERBLOAT("Measuring Loaded Bufferbloat"),
-    COMPLETED("Diagnostic Complete")
+    COMPLETED("Diagnostic Complete"),
+    FAILED("Test Failed")
 }
 
 /**
@@ -79,18 +88,38 @@ data class DiagnosticSamplePoint(
 )
 
 /**
- * Aggregated results of a completed network speed & latency diagnostic.
+ * Download, upload and loaded-latency results. Absent from a ping-only test.
+ */
+data class ThroughputResult(
+    // Average over the measured part of each phase (after TCP ramp-up)
+    val downloadSpeedMbps: Double,
+    // Highest one-second rate during the download phase
+    val peakDownloadMbps: Double,
+    val uploadSpeedMbps: Double,
+    // Median latency while downloading / uploading
+    val loadedDownloadPingMs: Double,
+    val loadedUploadPingMs: Double,
+    val bufferbloatDeltaMs: Double,
+    val bufferbloatGrade: BufferbloatGrade,
+    val qosAssessment: QosAssessment,
+    // Bytes downloaded plus uploaded, including ramp-up
+    val dataUsedBytes: Long
+) {
+    // The worse of the two directions, which is what the grade is based on
+    val loadedPingMs: Double
+        get() = max(loadedDownloadPingMs, loadedUploadPingMs)
+}
+
+/**
+ * Results of a completed speed test or ping-only test.
  */
 data class SpeedDiagnosticResult(
     val unloadedPingMs: Double,
     val jitterMs: Double,
-    val downloadSpeedMbps: Double,
-    val peakDownloadMbps: Double,
-    val uploadSpeedMbps: Double,
-    val loadedPingMs: Double,
-    val bufferbloatDeltaMs: Double,
-    val bufferbloatGrade: BufferbloatGrade,
-    val qosAssessment: QosAssessment,
+    // Null for a ping-only test
+    val throughput: ThroughputResult?,
+    // Where the test ran, e.g. "M-Lab New York"; null if unknown
+    val serverName: String?,
     val timestamp: Long = System.currentTimeMillis()
 )
 
@@ -103,8 +132,48 @@ data class DiagnosticState(
     val currentSpeedMbps: Float = 0f,
     val currentPingMs: Float = 0f,
     val latestSamples: List<DiagnosticSamplePoint> = emptyList(),
-    val result: SpeedDiagnosticResult? = null
+    val result: SpeedDiagnosticResult? = null,
+    // Set when phase is FAILED
+    val error: String? = null
 )
+
+/**
+ * The server a speed test runs against. Calls other than [prepare] block, and run on
+ * Dispatchers.IO.
+ */
+interface SpeedTestServer {
+    /** Picks a server and returns a display name for where the test runs. */
+    suspend fun prepare(): String?
+
+    /** One latency probe in ms, or null if the server didn't answer within [timeoutMs]. */
+    fun probeLatencyMs(timeoutMs: Int): Double?
+
+    /**
+     * Runs one download stream until the server ends it or [onBytes] returns false,
+     * calling [onBytes] with each amount received. Throws IOException if it fails.
+     */
+    fun download(onBytes: (Int) -> Boolean)
+
+    /** Runs one upload stream, with the same contract as [download]. */
+    fun upload(onBytes: (Int) -> Boolean)
+}
+
+data class SpeedTestConfig(
+    val pingCount: Int = 12,
+    val pingIntervalMs: Long = 100,
+    val pingTimeoutMs: Int = 1_000,
+    // Connections per direction. ndt7 uses one: its servers run BBR, which fills the
+    // link with a single TCP stream
+    val streams: Int = 1,
+    // Longest a phase runs; an ndt7 server ends the download itself after about 10 s
+    val phaseDurationMs: Long = 10_000,
+    // Left out of the average while TCP ramps up
+    val warmupMs: Long = 2_000,
+    val sampleIntervalMs: Long = 250,
+    val loadedPingIntervalMs: Long = 400
+)
+
+class SpeedTestException(message: String, cause: Throwable? = null) : Exception(message, cause)
 
 /**
  * Core mathematical engine for Wi-Fi speed, latency jitter, and bufferbloat diagnostics.
@@ -215,230 +284,282 @@ object SpeedDiagnosticEngine {
         )
     }
 
+    /** Median, so one slow or lost probe doesn't skew a latency figure. */
+    fun median(values: List<Double>): Double {
+        require(values.isNotEmpty()) { "median of no values" }
+        val sorted = values.sorted()
+        val mid = sorted.size / 2
+        return if (sorted.size % 2 == 1) sorted[mid] else (sorted[mid - 1] + sorted[mid]) / 2
+    }
+
+    /** Total bytes transferred so far in a phase, read at [elapsedMs] into the phase. */
+    data class ByteSample(val elapsedMs: Long, val bytes: Long)
+
+    /** Rate between two readings in Mbps (bits per ms / 1000). */
+    fun rateMbps(from: ByteSample, to: ByteSample): Double {
+        val ms = to.elapsedMs - from.elapsedMs
+        if (ms <= 0) return 0.0
+        return (to.bytes - from.bytes) * 8.0 / ms / 1000.0
+    }
+
     /**
-     * Executes real socket probe to measure Round-Trip Time (RTT) to a target host/port.
-     * Returns RTT in milliseconds, or null if unreachable.
+     * Average rate from the last reading at or before [warmupMs] to the end of the phase,
+     * leaving out TCP slow start.
      */
-    suspend fun probeSocketRtt(host: String = "1.1.1.1", port: Int = 53, timeoutMs: Int = 1000): Double? =
-        withContext(Dispatchers.IO) {
-            try {
-                val start = System.nanoTime()
-                Socket().use { socket ->
-                    socket.connect(InetSocketAddress(host, port), timeoutMs)
-                }
-                val durationMs = (System.nanoTime() - start) / 1_000_000.0
-                durationMs
-            } catch (e: Exception) {
-                null
+    fun steadyRateMbps(samples: List<ByteSample>, warmupMs: Long): Double {
+        if (samples.size < 2) return 0.0
+        val start = samples.lastOrNull { it.elapsedMs <= warmupMs } ?: samples.first()
+        return rateMbps(start, samples.last())
+    }
+
+    /** Highest rate over any span of at least [windowMs] between readings. */
+    fun peakRateMbps(samples: List<ByteSample>, windowMs: Long = 1_000): Double {
+        var peak = 0.0
+        var start = 0
+        for (end in samples.indices) {
+            // Move the start up as long as the span stays at least windowMs
+            while (start + 1 < end && samples[end].elapsedMs - samples[start + 1].elapsedMs >= windowMs) start++
+            if (samples[end].elapsedMs - samples[start].elapsedMs >= windowMs) {
+                peak = max(peak, rateMbps(samples[start], samples[end]))
             }
         }
+        return peak
+    }
 
     /**
-     * Runs an interactive diagnostic flow emitting progressive state updates.
-     * Correlates benchmark values with the active Wi-Fi link parameters (RSSI, channel width, theoretical speed).
+     * Full test against [server]: idle latency and jitter, then download and upload.
+     * Latency is probed during both transfers to measure bufferbloat.
+     * Ends with a COMPLETED state carrying the result, or a FAILED state with the reason.
      */
-    fun runDiagnosticFlow(
-        activeRssi: Int,
-        theoreticalLinkMbps: Int,
-        isSimulated: Boolean
-    ): Flow<DiagnosticState> = flow {
-        // Calibrate target maximums based on RF link physics
-        // Wi-Fi real-world Goodput is typically 50-75% of theoretical PHY rate under clean conditions,
-        // and scales down with attenuation (-80 dBm drops goodput significantly).
-        val rfFactor = when {
-            activeRssi >= -50 -> 0.75f
-            activeRssi >= -65 -> 0.65f
-            activeRssi >= -75 -> 0.40f
-            else -> 0.18f
-        }
-        val targetDownloadMbps = max(12.0f, theoreticalLinkMbps * rfFactor)
-        val targetUploadMbps = targetDownloadMbps * 0.35f
-        val basePingMs = when {
-            activeRssi >= -55 -> 14.0
-            activeRssi >= -70 -> 22.0
-            else -> 48.0
-        }
+    fun runSpeedTest(server: SpeedTestServer, config: SpeedTestConfig = SpeedTestConfig()): Flow<DiagnosticState> = flow {
+        val graph = mutableListOf<DiagnosticSamplePoint>()
+        val clock = TestClock()
 
-        val samples = mutableListOf<DiagnosticSamplePoint>()
-        var elapsed = 0.0f
-
-        // Initial Idle -> Start Ping & Jitter Phase
-        emit(DiagnosticState(phase = DiagnosticPhase.PING_JITTER, progress = 0.05f))
-
-        // Phase 1: Ping & Jitter Probe (10 samples over ~1.5s)
-        val pings = mutableListOf<Double>()
-        val pingCount = 10
-        for (i in 1..pingCount) {
-            delay(120)
-            elapsed += 0.12f
-
-            // Attempt socket probe or compute RF-correlated RTT
-            val realRtt = if (!isSimulated) probeSocketRtt("1.1.1.1", 53, 500) else null
-            val measuredRtt = realRtt ?: (basePingMs + (Math.random() * 4.0 - 2.0))
-            pings.add(measuredRtt)
-
-            val sample = DiagnosticSamplePoint(
-                elapsedSec = elapsed,
-                speedMbps = 0f,
-                pingMs = measuredRtt.toFloat(),
-                phase = DiagnosticPhase.PING_JITTER
-            )
-            samples.add(sample)
-
-            val currentProgress = 0.05f + (i.toFloat() / pingCount) * 0.20f
-            emit(
-                DiagnosticState(
-                    phase = DiagnosticPhase.PING_JITTER,
-                    progress = currentProgress,
-                    currentPingMs = measuredRtt.toFloat(),
-                    latestSamples = samples.takeLast(50)
-                )
-            )
-        }
-
-        val unloadedPing = pings.average()
+        emit(DiagnosticState(phase = DiagnosticPhase.PING_JITTER, progress = 0.02f))
+        val serverName = server.prepare()
+        val pings = measureIdleLatency(server, config, graph, clock, 0.02f, 0.15f)
+        val unloaded = median(pings)
         val jitter = calculateJitter(pings)
 
-        // Phase 2: Download Throughput Benchmark (~2.5s)
-        emit(DiagnosticState(phase = DiagnosticPhase.DOWNLOAD, progress = 0.26f, currentPingMs = unloadedPing.toFloat()))
-        val downloadSteps = 16
-        val downloadSpeeds = mutableListOf<Double>()
-        var peakDownload = 0.0
+        val download = measureTransfer(DiagnosticPhase.DOWNLOAD, server::download, server, config, graph, clock, unloaded, 0.15f, 0.575f)
+        val upload = measureTransfer(DiagnosticPhase.UPLOAD, server::upload, server, config, graph, clock, unloaded, 0.575f, 1f)
 
-        for (i in 1..downloadSteps) {
-            delay(150)
-            elapsed += 0.15f
+        val downloadMbps = steadyRateMbps(download.readings, config.warmupMs)
+        val uploadMbps = steadyRateMbps(upload.readings, config.warmupMs)
+        val loadedDownload = download.loadedPings.takeIf { it.isNotEmpty() }?.let(::median) ?: unloaded
+        val loadedUpload = upload.loadedPings.takeIf { it.isNotEmpty() }?.let(::median) ?: unloaded
+        val deltaMs = max(0.0, max(loadedDownload, loadedUpload) - unloaded)
+        val grade = evaluateBufferbloatGrade(deltaMs)
 
-            // S-curve ramp-up to target throughput with natural RF fluctuations
-            val ramp = (i.toFloat() / downloadSteps).pow(0.7f)
-            val noise = (Math.random() * 0.15 - 0.075).toFloat()
-            val instSpeed = max(1.0f, targetDownloadMbps * (ramp + noise))
-            downloadSpeeds.add(instSpeed.toDouble())
-            peakDownload = max(peakDownload, instSpeed.toDouble())
-
-            val sample = DiagnosticSamplePoint(
-                elapsedSec = elapsed,
-                speedMbps = instSpeed,
-                pingMs = unloadedPing.toFloat(),
-                phase = DiagnosticPhase.DOWNLOAD
-            )
-            samples.add(sample)
-
-            val currentProgress = 0.26f + (i.toFloat() / downloadSteps) * 0.30f
-            emit(
-                DiagnosticState(
-                    phase = DiagnosticPhase.DOWNLOAD,
-                    progress = currentProgress,
-                    currentSpeedMbps = instSpeed,
-                    currentPingMs = unloadedPing.toFloat(),
-                    latestSamples = samples.takeLast(50)
-                )
-            )
-        }
-        val avgDownload = downloadSpeeds.takeLast(10).average()
-
-        // Phase 3: Upload Throughput Benchmark (~2.0s)
-        emit(DiagnosticState(phase = DiagnosticPhase.UPLOAD, progress = 0.57f, currentPingMs = unloadedPing.toFloat()))
-        val uploadSteps = 12
-        val uploadSpeeds = mutableListOf<Double>()
-
-        for (i in 1..uploadSteps) {
-            delay(150)
-            elapsed += 0.15f
-
-            val ramp = (i.toFloat() / uploadSteps).pow(0.8f)
-            val noise = (Math.random() * 0.12 - 0.06).toFloat()
-            val instSpeed = max(0.5f, targetUploadMbps * (ramp + noise))
-            uploadSpeeds.add(instSpeed.toDouble())
-
-            val sample = DiagnosticSamplePoint(
-                elapsedSec = elapsed,
-                speedMbps = instSpeed,
-                pingMs = unloadedPing.toFloat(),
-                phase = DiagnosticPhase.UPLOAD
-            )
-            samples.add(sample)
-
-            val currentProgress = 0.57f + (i.toFloat() / uploadSteps) * 0.22f
-            emit(
-                DiagnosticState(
-                    phase = DiagnosticPhase.UPLOAD,
-                    progress = currentProgress,
-                    currentSpeedMbps = instSpeed,
-                    currentPingMs = unloadedPing.toFloat(),
-                    latestSamples = samples.takeLast(50)
-                )
-            )
-        }
-        val avgUpload = uploadSpeeds.takeLast(8).average()
-
-        // Phase 4: Bufferbloat / Loaded Latency Assessment (~1.8s)
-        emit(DiagnosticState(phase = DiagnosticPhase.BUFFERBLOAT, progress = 0.80f))
-        val loadedPings = mutableListOf<Double>()
-        // Saturation induced buffer latency increase: clean routers +5ms, congested Wi-Fi +15-45ms
-        val bufferbloatInduced = when {
-            activeRssi >= -55 -> 8.0 + Math.random() * 6.0
-            activeRssi >= -70 -> 18.0 + Math.random() * 14.0
-            else -> 42.0 + Math.random() * 35.0
-        }
-        val targetLoadedPing = unloadedPing + bufferbloatInduced
-
-        val bufferbloatSteps = 8
-        for (i in 1..bufferbloatSteps) {
-            delay(180)
-            elapsed += 0.18f
-
-            val currentLoaded = targetLoadedPing + (Math.random() * 6.0 - 3.0)
-            loadedPings.add(currentLoaded)
-
-            val sample = DiagnosticSamplePoint(
-                elapsedSec = elapsed,
-                speedMbps = avgDownload.toFloat() * 0.85f,
-                pingMs = currentLoaded.toFloat(),
-                phase = DiagnosticPhase.BUFFERBLOAT
-            )
-            samples.add(sample)
-
-            val currentProgress = 0.80f + (i.toFloat() / bufferbloatSteps) * 0.18f
-            emit(
-                DiagnosticState(
-                    phase = DiagnosticPhase.BUFFERBLOAT,
-                    progress = currentProgress,
-                    currentSpeedMbps = avgDownload.toFloat() * 0.85f,
-                    currentPingMs = currentLoaded.toFloat(),
-                    latestSamples = samples.takeLast(50)
-                )
-            )
-        }
-
-        val avgLoadedPing = loadedPings.average()
-        val deltaMs = max(0.0, avgLoadedPing - unloadedPing)
-        val bufferbloatGrade = evaluateBufferbloatGrade(deltaMs)
-        val qos = evaluateQos(unloadedPing, jitter, avgDownload, avgUpload, bufferbloatGrade)
-
-        val finalResult = SpeedDiagnosticResult(
-            unloadedPingMs = unloadedPing,
+        val result = SpeedDiagnosticResult(
+            unloadedPingMs = unloaded,
             jitterMs = jitter,
-            downloadSpeedMbps = avgDownload,
-            peakDownloadMbps = peakDownload,
-            uploadSpeedMbps = avgUpload,
-            loadedPingMs = avgLoadedPing,
-            bufferbloatDeltaMs = deltaMs,
-            bufferbloatGrade = bufferbloatGrade,
-            qosAssessment = qos
+            throughput = ThroughputResult(
+                downloadSpeedMbps = downloadMbps,
+                peakDownloadMbps = max(downloadMbps, peakRateMbps(download.readings)),
+                uploadSpeedMbps = uploadMbps,
+                loadedDownloadPingMs = loadedDownload,
+                loadedUploadPingMs = loadedUpload,
+                bufferbloatDeltaMs = deltaMs,
+                bufferbloatGrade = grade,
+                qosAssessment = evaluateQos(unloaded, jitter, downloadMbps, uploadMbps, grade),
+                dataUsedBytes = download.readings.last().bytes + upload.readings.last().bytes
+            ),
+            serverName = serverName
         )
-
-        // Phase 5: Complete
         emit(
             DiagnosticState(
                 phase = DiagnosticPhase.COMPLETED,
-                progress = 1.0f,
-                currentSpeedMbps = avgDownload.toFloat(),
-                currentPingMs = unloadedPing.toFloat(),
-                latestSamples = samples,
-                result = finalResult
+                progress = 1f,
+                currentSpeedMbps = downloadMbps.toFloat(),
+                currentPingMs = unloaded.toFloat(),
+                latestSamples = graph.toList(),
+                result = result
             )
         )
+    }.catch { e -> emitFailure(e) }
+
+    /** Latency and jitter only. The result has no throughput. */
+    fun runPingTest(server: SpeedTestServer, config: SpeedTestConfig = SpeedTestConfig()): Flow<DiagnosticState> = flow {
+        val graph = mutableListOf<DiagnosticSamplePoint>()
+        emit(DiagnosticState(phase = DiagnosticPhase.PING_JITTER, progress = 0.05f))
+        val serverName = server.prepare()
+        val pings = measureIdleLatency(server, config, graph, TestClock(), 0.05f, 1f)
+        val unloaded = median(pings)
+        emit(
+            DiagnosticState(
+                phase = DiagnosticPhase.COMPLETED,
+                progress = 1f,
+                currentPingMs = unloaded.toFloat(),
+                latestSamples = graph.toList(),
+                result = SpeedDiagnosticResult(
+                    unloadedPingMs = unloaded,
+                    jitterMs = calculateJitter(pings),
+                    throughput = null,
+                    serverName = serverName
+                )
+            )
+        )
+    }.catch { e -> emitFailure(e) }
+
+    private const val MAX_GRAPH_SAMPLES = 120
+
+    private class TestClock {
+        private val startNs = System.nanoTime()
+        fun elapsedSec(): Float = (System.nanoTime() - startNs) / 1e9f
+    }
+
+    private class TransferMeasurement(val readings: List<ByteSample>, val loadedPings: List<Double>)
+
+    // Only failures of the test itself become a FAILED state; anything else (including
+    // cancellation) propagates
+    private suspend fun FlowCollector<DiagnosticState>.emitFailure(e: Throwable) {
+        val message = when (e) {
+            is SpeedTestException -> e.message
+            is IOException -> "Network error: ${e.message ?: e.javaClass.simpleName}"
+            else -> throw e
+        }
+        emit(DiagnosticState(phase = DiagnosticPhase.FAILED, error = message))
+    }
+
+    private suspend fun FlowCollector<DiagnosticState>.measureIdleLatency(
+        server: SpeedTestServer,
+        config: SpeedTestConfig,
+        graph: MutableList<DiagnosticSamplePoint>,
+        clock: TestClock,
+        progressFrom: Float,
+        progressTo: Float
+    ): List<Double> {
+        val pings = mutableListOf<Double>()
+        for (i in 1..config.pingCount) {
+            val rtt = withContext(Dispatchers.IO) { server.probeLatencyMs(config.pingTimeoutMs) }
+            if (rtt != null) {
+                pings += rtt
+                graph += DiagnosticSamplePoint(clock.elapsedSec(), 0f, rtt.toFloat(), DiagnosticPhase.PING_JITTER)
+            }
+            emit(
+                DiagnosticState(
+                    phase = DiagnosticPhase.PING_JITTER,
+                    progress = progressFrom + (progressTo - progressFrom) * i / config.pingCount,
+                    currentPingMs = (rtt ?: pings.lastOrNull())?.toFloat() ?: 0f,
+                    latestSamples = graph.takeLast(MAX_GRAPH_SAMPLES)
+                )
+            )
+            if (i < config.pingCount) delay(config.pingIntervalMs)
+        }
+        if (pings.size < max(3, config.pingCount / 2)) {
+            throw SpeedTestException(
+                "The test server didn't answer (${pings.size} of ${config.pingCount} latency probes). " +
+                    "Check the internet connection."
+            )
+        }
+        return pings
+    }
+
+    /**
+     * Runs [transfer] on [SpeedTestConfig.streams] connections until the server ends them
+     * or the phase time runs out, reading the byte counter every sample interval and
+     * probing latency alongside.
+     */
+    private suspend fun FlowCollector<DiagnosticState>.measureTransfer(
+        phase: DiagnosticPhase,
+        transfer: ((Int) -> Boolean) -> Unit,
+        server: SpeedTestServer,
+        config: SpeedTestConfig,
+        graph: MutableList<DiagnosticSamplePoint>,
+        clock: TestClock,
+        idlePingMs: Double,
+        progressFrom: Float,
+        progressTo: Float
+    ): TransferMeasurement {
+        val bytes = AtomicLong()
+        val done = AtomicBoolean(false)
+        val failure = AtomicReference<Throwable?>(null)
+        val loadedPings = Collections.synchronizedList(mutableListOf<Double>())
+        val phaseStartNs = System.nanoTime()
+        fun phaseMs() = (System.nanoTime() - phaseStartNs) / 1_000_000
+
+        val runningStreams = AtomicInteger(config.streams)
+        val lastByteAtMs = AtomicLong(0)
+
+        // Transfers block in socket reads and writes, which coroutine cancellation can't
+        // interrupt. They check [done] after every read or write instead, and live in their
+        // own scope so a stalled connection is abandoned rather than waited for.
+        val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        repeat(config.streams) {
+            ioScope.launch {
+                try {
+                    transfer { n ->
+                        bytes.addAndGet(n.toLong())
+                        lastByteAtMs.set(phaseMs())
+                        !done.get()
+                    }
+                } catch (e: IOException) {
+                    // A stream that drops part-way still measured something; only a
+                    // phase with no data at all fails (below)
+                    failure.compareAndSet(null, e)
+                } finally {
+                    runningStreams.decrementAndGet()
+                }
+            }
+        }
+        ioScope.launch {
+            // Give the connections a moment to fill the link before measuring latency under load
+            delay(config.warmupMs / 2)
+            while (!done.get()) {
+                // An unanswered probe counts as the full timeout: latency was at least that long
+                val rtt = server.probeLatencyMs(config.pingTimeoutMs) ?: config.pingTimeoutMs.toDouble()
+                if (!done.get()) loadedPings += rtt
+                delay(config.loadedPingIntervalMs)
+            }
+        }
+
+        val readings = mutableListOf(ByteSample(0, 0))
+        try {
+            // Ends at the time limit, or earlier when the server has ended every stream
+            while (phaseMs() < config.phaseDurationMs && runningStreams.get() > 0) {
+                delay(config.sampleIntervalMs)
+                val now = ByteSample(phaseMs(), bytes.get())
+                readings += now
+                // Show the rate over the last second, so the gauge doesn't jump on every read.
+                // Skip the first moments of the phase: uploads look several times faster
+                // than the link while the socket send buffers fill.
+                val settled = readings.firstOrNull { it.elapsedMs >= config.warmupMs / 4 }
+                val oneSecondAgo = readings.lastOrNull { now.elapsedMs - it.elapsedMs >= 1_000 } ?: readings.first()
+                val windowStart = listOfNotNull(settled, oneSecondAgo).maxBy { it.elapsedMs }
+                val currentMbps = if (settled == null || windowStart === now) 0f else rateMbps(windowStart, now).toFloat()
+                val pingMs = (synchronized(loadedPings) { loadedPings.lastOrNull() } ?: idlePingMs).toFloat()
+                graph += DiagnosticSamplePoint(clock.elapsedSec(), currentMbps, pingMs, phase)
+                emit(
+                    DiagnosticState(
+                        phase = phase,
+                        progress = progressFrom + (progressTo - progressFrom) *
+                            min(1f, now.elapsedMs.toFloat() / config.phaseDurationMs),
+                        currentSpeedMbps = currentMbps,
+                        currentPingMs = pingMs,
+                        latestSamples = graph.takeLast(MAX_GRAPH_SAMPLES)
+                    )
+                )
+            }
+        } finally {
+            done.set(true)
+            ioScope.cancel()
+        }
+
+        if (runningStreams.get() == 0) {
+            // The server ended the streams between readings: end the measurement at the
+            // last byte, so the idle time after it doesn't lower the average
+            val lastByteMs = lastByteAtMs.get()
+            readings.removeAll { it.elapsedMs > lastByteMs }
+            if (readings.last().elapsedMs < lastByteMs) readings += ByteSample(lastByteMs, bytes.get())
+        }
+
+        if (readings.last().bytes == 0L) {
+            val direction = if (phase == DiagnosticPhase.UPLOAD) "upload" else "download"
+            val reason = failure.get()?.message?.let { ": $it" } ?: ""
+            throw SpeedTestException("The $direction didn't transfer any data$reason", failure.get())
+        }
+        return TransferMeasurement(readings, synchronized(loadedPings) { loadedPings.toList() })
     }
 
     /**
@@ -448,49 +569,63 @@ object SpeedDiagnosticEngine {
         result: SpeedDiagnosticResult,
         activeSsid: String,
         bssid: String,
-        theoreticalLinkSpeedMbps: Int
+        // Negotiated Wi-Fi link rate, or null when not connected
+        linkSpeedMbps: Int?
     ): String {
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US)
         val timestampStr = dateFormat.format(Date(result.timestamp))
+        fun f(value: Double) = String.format(Locale.US, "%.1f", value)
+        val throughput = result.throughput
 
         return buildString {
             appendLine("# WaveBalance Speed & Latency Diagnostic Audit")
             appendLine("**Generated:** $timestampStr")
             appendLine("**Target Network SSID:** `$activeSsid`")
             appendLine("**Connected BSSID:** `$bssid`")
-            appendLine("**Theoretical PHY Link Ceiling:** `${theoreticalLinkSpeedMbps} Mbps`")
+            appendLine("**Wi-Fi Link Rate:** `${linkSpeedMbps?.let { "$it Mbps" } ?: "Unknown"}`")
+            appendLine("**Test Server:** `${result.serverName ?: "Unknown"}`")
             appendLine()
             appendLine("---")
             appendLine()
             appendLine("## 1. Executive Performance Metrics")
-            appendLine("- **Download Goodput:** `${String.format(Locale.US, "%.1f", result.downloadSpeedMbps)} Mbps` (Peak: `${String.format(Locale.US, "%.1f", result.peakDownloadMbps)} Mbps`)")
-            appendLine("- **Upload Throughput:** `${String.format(Locale.US, "%.1f", result.uploadSpeedMbps)} Mbps`")
-            appendLine("- **Unloaded Idle Ping:** `${String.format(Locale.US, "%.1f", result.unloadedPingMs)} ms`")
-            appendLine("- **Jitter (Latency Stability):** `±${String.format(Locale.US, "%.1f", result.jitterMs)} ms`")
-            appendLine("- **Loaded Ping (Under Saturation):** `${String.format(Locale.US, "%.1f", result.loadedPingMs)} ms`")
-            appendLine("- **Bufferbloat Latency Delta:** `+${String.format(Locale.US, "%.1f", result.bufferbloatDeltaMs)} ms`")
-            appendLine("- **Bufferbloat Rating:** **Grade ${result.bufferbloatGrade.grade}** (${result.bufferbloatGrade.description})")
-            appendLine()
-            appendLine("---")
-            appendLine()
-            appendLine("## 2. Quality of Service (QoS) & Application Suitability")
-            appendLine("| Application Profile | Rating | Assessment |")
-            appendLine("|:---|:---:|:---|")
-            appendLine("| 🎮 Competitive Gaming | **${result.qosAssessment.gamingRating.title}** | ${result.qosAssessment.gamingDetail} |")
-            appendLine("| 📞 Video Conferencing & VoIP | **${result.qosAssessment.videoCallRating.title}** | ${result.qosAssessment.videoCallDetail} |")
-            appendLine("| 🍿 4K/8K HDR Video Streaming | **${result.qosAssessment.streamingRating.title}** | ${result.qosAssessment.streamingDetail} |")
-            appendLine("| ☁️ Cloud Sync & Backups | **${result.qosAssessment.cloudTransferRating.title}** | ${result.qosAssessment.cloudTransferDetail} |")
-            appendLine()
-            appendLine("---")
-            appendLine()
-            appendLine("## 3. Router Optimization Directives")
-            if (result.bufferbloatGrade >= BufferbloatGrade.C) {
-                appendLine("> [!WARNING]")
-                appendLine("> **Bufferbloat Detected:** Active latency increases significantly (+${String.format(Locale.US, "%.1f", result.bufferbloatDeltaMs)} ms) under network load.")
-                appendLine("> Enable **Smart Queue Management (SQM)**, **FQ-CoDel**, or **CAKE** queueing algorithms in your router administration dashboard to prioritize latency-sensitive packets over bulk downloads.")
+            if (throughput != null) {
+                appendLine("- **Download:** `${f(throughput.downloadSpeedMbps)} Mbps` (Peak: `${f(throughput.peakDownloadMbps)} Mbps`)")
+                appendLine("- **Upload:** `${f(throughput.uploadSpeedMbps)} Mbps`")
+            }
+            appendLine("- **Unloaded Idle Ping:** `${f(result.unloadedPingMs)} ms`")
+            appendLine("- **Jitter (Latency Stability):** `±${f(result.jitterMs)} ms`")
+            if (throughput == null) {
+                appendLine()
+                appendLine("*Ping-only test: download, upload and bufferbloat were not measured.*")
             } else {
-                appendLine("> [!NOTE]")
-                appendLine("> **Bufferbloat Passed:** Minimal bufferbloat observed (+${String.format(Locale.US, "%.1f", result.bufferbloatDeltaMs)} ms). Router queueing parameters are well balanced.")
+                appendLine("- **Ping While Downloading:** `${f(throughput.loadedDownloadPingMs)} ms`")
+                appendLine("- **Ping While Uploading:** `${f(throughput.loadedUploadPingMs)} ms`")
+                appendLine("- **Bufferbloat Latency Delta:** `+${f(throughput.bufferbloatDeltaMs)} ms`")
+                appendLine("- **Bufferbloat Rating:** **Grade ${throughput.bufferbloatGrade.grade}** (${throughput.bufferbloatGrade.description})")
+                appendLine("- **Data Used:** `${throughput.dataUsedBytes / 1_000_000} MB`")
+                appendLine()
+                appendLine("---")
+                appendLine()
+                val qos = throughput.qosAssessment
+                appendLine("## 2. Quality of Service (QoS) & Application Suitability")
+                appendLine("| Application Profile | Rating | Assessment |")
+                appendLine("|:---|:---:|:---|")
+                appendLine("| 🎮 Competitive Gaming | **${qos.gamingRating.title}** | ${qos.gamingDetail} |")
+                appendLine("| 📞 Video Conferencing & VoIP | **${qos.videoCallRating.title}** | ${qos.videoCallDetail} |")
+                appendLine("| 🍿 4K/8K HDR Video Streaming | **${qos.streamingRating.title}** | ${qos.streamingDetail} |")
+                appendLine("| ☁️ Cloud Sync & Backups | **${qos.cloudTransferRating.title}** | ${qos.cloudTransferDetail} |")
+                appendLine()
+                appendLine("---")
+                appendLine()
+                appendLine("## 3. Router Optimization Directives")
+                if (throughput.bufferbloatGrade >= BufferbloatGrade.C) {
+                    appendLine("> [!WARNING]")
+                    appendLine("> **Bufferbloat Detected:** Active latency increases significantly (+${f(throughput.bufferbloatDeltaMs)} ms) under network load.")
+                    appendLine("> Enable **Smart Queue Management (SQM)**, **FQ-CoDel**, or **CAKE** queueing algorithms in your router administration dashboard to prioritize latency-sensitive packets over bulk downloads.")
+                } else {
+                    appendLine("> [!NOTE]")
+                    appendLine("> **Bufferbloat Passed:** Minimal bufferbloat observed (+${f(throughput.bufferbloatDeltaMs)} ms). Router queueing parameters are well balanced.")
+                }
             }
             appendLine()
             appendLine("---")
