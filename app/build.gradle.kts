@@ -66,8 +66,12 @@ dependencies {
     implementation("androidx.compose.material3.adaptive:adaptive-navigation:1.0.0")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // WebSockets for the ndt7 speed test
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
+    // Android's org.json is a stub in local unit tests
+    testImplementation("org.json:json:20240303")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

@@ -7,7 +7,9 @@ import com.wavebalance.app.model.DiagnosticSamplePoint
 import com.wavebalance.app.model.QosAssessment
 import com.wavebalance.app.model.SpeedDiagnosticEngine
 import com.wavebalance.app.model.SpeedDiagnosticResult
+import com.wavebalance.app.model.ThroughputResult
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -84,37 +86,43 @@ class SpeedDiagnosticEngineTest {
         assertEquals(ApplicationRating.POOR, qos.cloudTransferRating)
     }
 
+    private val qos = QosAssessment(
+        gamingRating = ApplicationRating.EXCELLENT,
+        gamingDetail = "Sub-30ms RTT & low jitter ensures competitive tournament-grade response.",
+        videoCallRating = ApplicationRating.EXCELLENT,
+        videoCallDetail = "Crystal-clear HD/4K conferencing.",
+        streamingRating = ApplicationRating.EXCELLENT,
+        streamingDetail = "Instant 4K/8K HDR streaming.",
+        cloudTransferRating = ApplicationRating.EXCELLENT,
+        cloudTransferDetail = "High-speed cloud backups."
+    )
+
+    private val throughput = ThroughputResult(
+        downloadSpeedMbps = 312.5,
+        peakDownloadMbps = 345.0,
+        uploadSpeedMbps = 84.0,
+        loadedDownloadPingMs = 22.0,
+        loadedUploadPingMs = 19.0,
+        bufferbloatDeltaMs = 7.8,
+        bufferbloatGrade = BufferbloatGrade.A,
+        qosAssessment = qos,
+        dataUsedBytes = 412_000_000
+    )
+
+    private val result = SpeedDiagnosticResult(
+        unloadedPingMs = 14.2,
+        jitterMs = 1.8,
+        throughput = throughput,
+        serverName = "M-Lab New York"
+    )
+
     @Test
     fun testGenerateSpeedReportMarkdown() {
-        val qos = QosAssessment(
-            gamingRating = ApplicationRating.EXCELLENT,
-            gamingDetail = "Sub-30ms RTT & low jitter ensures competitive tournament-grade response.",
-            videoCallRating = ApplicationRating.EXCELLENT,
-            videoCallDetail = "Crystal-clear HD/4K conferencing.",
-            streamingRating = ApplicationRating.EXCELLENT,
-            streamingDetail = "Instant 4K/8K HDR streaming.",
-            cloudTransferRating = ApplicationRating.EXCELLENT,
-            cloudTransferDetail = "High-speed cloud backups."
-        )
-
-        val result = SpeedDiagnosticResult(
-            unloadedPingMs = 14.2,
-            jitterMs = 1.8,
-            downloadSpeedMbps = 312.5,
-            peakDownloadMbps = 345.0,
-            uploadSpeedMbps = 84.0,
-            loadedPingMs = 22.0,
-            bufferbloatDeltaMs = 7.8,
-            bufferbloatGrade = BufferbloatGrade.A,
-            qosAssessment = qos,
-            timestamp = System.currentTimeMillis()
-        )
-
         val markdown = SpeedDiagnosticEngine.generateSpeedReportMarkdown(
             result = result,
             activeSsid = "GoogleFiber-5G",
             bssid = "00:11:22:33:44:55",
-            theoreticalLinkSpeedMbps = 866
+            linkSpeedMbps = 866
         )
 
         assertNotNull(markdown)
@@ -122,26 +130,45 @@ class SpeedDiagnosticEngineTest {
         assertTrue(markdown.contains("GoogleFiber-5G"))
         assertTrue(markdown.contains("00:11:22:33:44:55"))
         assertTrue(markdown.contains("866 Mbps"))
+        assertTrue(markdown.contains("M-Lab New York"))
         assertTrue(markdown.contains("312.5 Mbps"))
         assertTrue(markdown.contains("84.0 Mbps"))
         assertTrue(markdown.contains("14.2 ms"))
         assertTrue(markdown.contains("1.8 ms"))
+        assertTrue(markdown.contains("22.0 ms"))
+        assertTrue(markdown.contains("412 MB"))
         assertTrue(markdown.contains("Bufferbloat Rating"))
         assertTrue(markdown.contains("Grade A"))
         assertTrue(markdown.contains("Bufferbloat Passed"))
 
         // Also test Grade C or lower generates SQM recommendation
         val congestedResult = result.copy(
-            bufferbloatGrade = BufferbloatGrade.C,
-            bufferbloatDeltaMs = 45.0
+            throughput = throughput.copy(bufferbloatGrade = BufferbloatGrade.C, bufferbloatDeltaMs = 45.0)
         )
         val sqmMarkdown = SpeedDiagnosticEngine.generateSpeedReportMarkdown(
             result = congestedResult,
             activeSsid = "GoogleFiber-5G",
             bssid = "00:11:22:33:44:55",
-            theoreticalLinkSpeedMbps = 866
+            linkSpeedMbps = 866
         )
         assertTrue(sqmMarkdown.contains("Bufferbloat Detected"))
         assertTrue(sqmMarkdown.contains("Smart Queue Management (SQM)"))
+    }
+
+    @Test
+    fun testPingOnlyReport_hasNoThroughputOrQos() {
+        val markdown = SpeedDiagnosticEngine.generateSpeedReportMarkdown(
+            result = result.copy(throughput = null),
+            activeSsid = "GoogleFiber-5G",
+            bssid = "00:11:22:33:44:55",
+            linkSpeedMbps = null
+        )
+
+        assertTrue(markdown.contains("14.2 ms"))
+        assertTrue(markdown.contains("Ping-only test"))
+        assertTrue(markdown.contains("Wi-Fi Link Rate:** `Unknown`"))
+        assertFalse(markdown.contains("Download:"))
+        assertFalse(markdown.contains("Bufferbloat Rating"))
+        assertFalse(markdown.contains("Competitive Gaming"))
     }
 }
