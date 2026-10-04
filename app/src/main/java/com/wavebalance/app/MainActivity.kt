@@ -80,7 +80,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.wavebalance.app.data.ScanStatus
+import com.wavebalance.app.model.ScanStatus
 import com.wavebalance.app.model.SurveyPoint
 import com.wavebalance.app.ui.ScanViewModel
 import com.wavebalance.app.ui.adaptive.LocalWindowLayout
@@ -572,6 +572,8 @@ private fun scanStatusLabel(status: ScanStatus): String = when (status) {
         val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(status.timestamp))
         "${status.count} networks · updated $time"
     }
-    is ScanStatus.Throttled -> "Android limits scans · retry in ${status.secondsCooldown}s"
+    is ScanStatus.Cached -> "${status.count} cached networks · " +
+        (status.lastMeasuredAt?.let { "last measured " + DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(it)) } ?: "measurement time unknown")
+    is ScanStatus.Throttled -> "Cached results · Android limits scans · retry in ${status.secondsCooldown}s"
     is ScanStatus.Error -> status.message
 }
