@@ -39,6 +39,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -85,7 +86,7 @@ fun BeforeAfterSpectrumGraph(
     recommendedCenterFrequencyMhz: Int = FrequencyBand.channelToFrequency(recommendedChannel, band),
     modifier: Modifier = Modifier
 ) {
-    var viewState by remember { mutableStateOf(SpectrumViewState.BEFORE_CURRENT) }
+    var viewState by rememberSaveable { mutableStateOf(SpectrumViewState.BEFORE_CURRENT) }
 
     val channelConfig = remember(band) {
         when (band) {

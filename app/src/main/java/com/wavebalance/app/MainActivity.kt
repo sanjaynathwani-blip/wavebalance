@@ -55,6 +55,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +66,10 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
@@ -115,7 +122,9 @@ fun WaveBalanceAdaptiveApp(
     var currentDestination by rememberSaveable { mutableStateOf(AppDestination.DASHBOARD) }
     // Where the speed test returns to when it is closed with Back or T
     var previousDestination by rememberSaveable { mutableStateOf(AppDestination.DASHBOARD) }
-    var showPermissionModal by remember { mutableStateOf(false) }
+    var showPermissionModal by rememberSaveable { mutableStateOf(false) }
+    var isEditingText by remember { mutableStateOf(false) }
+    val destinationState = rememberSaveableStateHolder()
 
     val navigate: (AppDestination) -> Unit = { destination ->
         if (destination != currentDestination) {
@@ -176,31 +185,38 @@ fun WaveBalanceAdaptiveApp(
     }
 
     val content: @Composable () -> Unit = {
-        DestinationContent(
-            destination = currentDestination,
-            viewModel = viewModel,
-            onNavigate = navigate,
-            onRequestPermissions = {
-                showPermissionModal = false
-                permissionLauncher.launch(requiredPermissions)
-            },
-            onOpenDetailsForActive = {
-                val activeBssid = activeConn?.bssid
-                val target = allAps.find { it.bssid.equals(activeBssid, ignoreCase = true) } ?: allAps.firstOrNull()
-                viewModel.selectAccessPoint(target)
-                navigate(AppDestination.DETAILS)
-            }
-        )
+        destinationState.SaveableStateProvider(currentDestination.name) {
+            DestinationContent(
+                destination = currentDestination,
+                viewModel = viewModel,
+                onNavigate = navigate,
+                onTextInputFocusChanged = { isEditingText = it },
+                onRequestPermissions = {
+                    showPermissionModal = false
+                    permissionLauncher.launch(requiredPermissions)
+                },
+                onOpenDetailsForActive = {
+                    val activeBssid = activeConn?.bssid
+                    val target = allAps.find { it.bssid.equals(activeBssid, ignoreCase = true) } ?: allAps.firstOrNull()
+                    viewModel.selectAccessPoint(target)
+                    navigate(AppDestination.DETAILS)
+                }
+            )
+        }
     }
+
+    val latestContent by rememberUpdatedState(content)
+    val movableContent = remember { movableContentOf { latestContent() } }
 
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .focusRequester(focusRequester)
-            .focusable()
             .onKeyEvent { keyEvent ->
-                if (keyEvent.type != KeyEventType.KeyUp) return@onKeyEvent false
+                if (isEditingText || keyEvent.type != KeyEventType.KeyUp ||
+                    keyEvent.isCtrlPressed || keyEvent.isAltPressed || keyEvent.isMetaPressed || keyEvent.isShiftPressed
+                ) return@onKeyEvent false
                 when (keyEvent.key) {
                     Key.One, Key.D -> { navigate(AppDestination.DASHBOARD); true }
                     Key.Two, Key.R -> { navigate(AppDestination.RADAR); true }
@@ -236,6 +252,7 @@ fun WaveBalanceAdaptiveApp(
                     else -> false
                 }
             }
+            .focusable()
     ) {
         val windowLayout = WindowLayout.fromWidth(maxWidth)
 
@@ -269,7 +286,7 @@ fun WaveBalanceAdaptiveApp(
                                 onExport = { viewModel.shareAuditReport(context) },
                                 onScan = { viewModel.triggerScan() }
                             )
-                            Box(modifier = Modifier.weight(1f)) { content() }
+                            Box(modifier = Modifier.weight(1f)) { movableContent() }
                         }
                     }
                 }
@@ -295,7 +312,7 @@ fun WaveBalanceAdaptiveApp(
                                 onExport = { viewModel.shareAuditReport(context) },
                                 onScan = { viewModel.triggerScan() }
                             )
-                            Box(modifier = Modifier.weight(1f)) { content() }
+                            Box(modifier = Modifier.weight(1f)) { movableContent() }
                         }
                     }
                 }
@@ -310,7 +327,7 @@ fun WaveBalanceAdaptiveApp(
                             onExport = { viewModel.shareAuditReport(context) },
                             onScan = { viewModel.triggerScan() }
                         )
-                        Box(modifier = Modifier.weight(1f)) { content() }
+                        Box(modifier = Modifier.weight(1f)) { movableContent() }
                         AppBottomBar(
                             current = currentDestination,
                             collisionCount = collisionCount,
@@ -342,7 +359,8 @@ private fun DestinationContent(
     viewModel: ScanViewModel,
     onNavigate: (AppDestination) -> Unit,
     onRequestPermissions: () -> Unit,
-    onOpenDetailsForActive: () -> Unit
+    onOpenDetailsForActive: () -> Unit,
+    onTextInputFocusChanged: (Boolean) -> Unit
 ) {
     when (destination) {
         AppDestination.DASHBOARD -> DashboardScreen(
@@ -356,6 +374,7 @@ private fun DestinationContent(
         AppDestination.RADAR -> WifiScanScreen(
             viewModel = viewModel,
             onRequestPermissions = onRequestPermissions,
+            onTextInputFocusChanged = onTextInputFocusChanged,
             onNavigateToDetails = { ap ->
                 viewModel.selectAccessPoint(ap)
                 onNavigate(AppDestination.DETAILS)
