@@ -128,7 +128,7 @@ fun WaveBalanceAdaptiveApp(
         currentDestination = previousDestination
     }
 
-    val allAps by viewModel.filteredAccessPoints.collectAsState()
+    val allAps by viewModel.allAccessPoints.collectAsState()
     val activeConn by viewModel.activeConnection.collectAsState()
     val isMockMode by viewModel.isMockMode.collectAsState()
     val scanStatus by viewModel.scanStatus.collectAsState()
