@@ -14,6 +14,9 @@ import android.net.wifi.ScanResult
 import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.SystemClock
+import com.wavebalance.app.model.ScanFreshness
+import com.wavebalance.app.model.ScanStatus
 import androidx.core.content.ContextCompat
 import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.ActiveConnectionInfo
@@ -33,14 +36,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-sealed class ScanStatus {
-    object Idle : ScanStatus()
-    object Scanning : ScanStatus()
-    data class Success(val count: Int, val timestamp: Long) : ScanStatus()
-    data class Throttled(val secondsCooldown: Int) : ScanStatus()
-    data class Error(val message: String) : ScanStatus()
-}
 
 class WifiScanEngine(private val context: Context) {
 
@@ -65,7 +60,8 @@ class WifiScanEngine(private val context: Context) {
     private val _taggedHomeBssids = MutableStateFlow<Set<String>>(emptySet())
     val taggedHomeBssids: StateFlow<Set<String>> = _taggedHomeBssids.asStateFlow()
 
-    private var lastScanTime = 0L
+    private var lastScanTime: Long? = null
+    private val scanFreshness = ScanFreshness()
     private var mockScanJob: Job? = null
     private val scanCooldownMs = 25_000L // Android 4-scans/2-min rate limit (~30s window)
 
@@ -94,6 +90,7 @@ class WifiScanEngine(private val context: Context) {
         _accessPoints.value = emptyList()
         _activeConnection.value = null
         _scanStatus.value = ScanStatus.Idle
+        scanFreshness.reset()
         if (enabled) {
             _accessPoints.value = MockWifiDataProvider.getMockAccessPoints()
             _activeConnection.value = MockWifiDataProvider.getMockActiveConnection()
@@ -220,9 +217,9 @@ class WifiScanEngine(private val context: Context) {
             return
         }
 
-        val now = System.currentTimeMillis()
-        val elapsed = now - lastScanTime
-        if (lastScanTime > 0 && elapsed < scanCooldownMs) {
+        val now = SystemClock.elapsedRealtime()
+        val elapsed = lastScanTime?.let { now - it }
+        if (elapsed != null && elapsed < scanCooldownMs) {
             val remainingSec = ((scanCooldownMs - elapsed) / 1000).toInt() + 1
             _scanStatus.value = ScanStatus.Throttled(remainingSec)
             // Still update with available cached results
@@ -255,13 +252,15 @@ class WifiScanEngine(private val context: Context) {
         if (_isMockMode.value) return
         val wifi = wifiManager ?: return
         if (!hasPermissions()) {
+            _scanStatus.value = ScanStatus.Error("Location/Nearby permissions required to read scans.")
             return
         }
 
         val rawResults: List<ScanResult> = try {
             wifi.scanResults ?: emptyList()
         } catch (e: SecurityException) {
-            emptyList()
+            _scanStatus.value = ScanStatus.Error("Wi-Fi scan permission was denied; previous results may be stale.")
+            return
         }
 
         val activeBssid = _activeConnection.value?.bssid ?: ""
@@ -309,7 +308,14 @@ class WifiScanEngine(private val context: Context) {
         }.sortedByDescending { it.rssi }
 
         _accessPoints.value = mapped
-        _scanStatus.value = ScanStatus.Success(mapped.size, System.currentTimeMillis())
+        _scanStatus.value = scanFreshness.onResults(
+            previous = _scanStatus.value,
+            count = mapped.size,
+            resultsUpdated = resultsUpdated,
+            resultTimestampMicros = rawResults.maxOfOrNull { it.timestamp },
+            elapsedRealtimeMicros = SystemClock.elapsedRealtimeNanos() / 1000,
+            wallClockMillis = System.currentTimeMillis()
+        )
         updateActiveConnectionInfo()
     }
 
