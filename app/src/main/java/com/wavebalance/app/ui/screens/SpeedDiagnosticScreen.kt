@@ -735,7 +735,7 @@ private fun TestSourceNote(state: DiagnosticState) {
     val text = when {
         failed -> state.error ?: "The test failed."
         result == null -> "Tests run on Measurement Lab (M-Lab) servers. M-Lab publishes each full test's " +
-            "results, including your IP address, as open data. Ping Only sends nothing to M-Lab."
+            "results, including your IP address, as open data. Ping Only doesn't run a test, so nothing is published."
         throughput == null -> "Ping only, to ${result.serverName ?: "the test server"}. Download, upload and bufferbloat weren't measured."
         else -> "Measured on ${result.serverName ?: "an M-Lab server"} · ${throughput.dataUsedBytes / 1_000_000} MB used · " +
             "published by M-Lab as open data.\nOne connection each way, as M-Lab measures it. Tests that use several " +
@@ -779,7 +779,7 @@ private fun MLabConsentDialog(onAccept: () -> Unit, onDismiss: () -> Unit) {
                 )
                 Text(
                     "M-Lab publishes every test result as open data, including your IP address and " +
-                        "the date and time of the test. Ping Only doesn't send anything to M-Lab."
+                        "the date and time of the test. Ping Only doesn't run a test, so nothing is published."
                 )
                 Text(
                     text = "Read M-Lab's privacy policy",
