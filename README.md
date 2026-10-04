@@ -170,6 +170,18 @@ Run tests with:
 
 ---
 
+## 📥 Install
+
+**[⬇ Download WaveBalance.apk](../../releases/latest/download/WaveBalance.apk)** (Android 8.0 or later)
+
+1. Open the link on your Android device or Googlebook and download the APK.
+2. Open it from Chrome's download message or the **Files** app. The first time, Android asks you to allow that app to install unknown apps: turn it on, go back, and tap **Install**.
+3. Open WaveBalance and allow **location** and **nearby devices** when asked. Android only shows Wi-Fi networks to apps with these permissions, and only while **Location** is switched on in quick settings; WaveBalance doesn't read your location.
+
+Updates install over the previous version and keep your settings. Each release lists the APK's SHA-256 checksum in `SHA256SUMS` if you want to check your download.
+
+---
+
 ## 🛠️ Build & Installation
 
 ### Prerequisites
@@ -193,11 +205,12 @@ cd wavebalance
 
 ### Deploy to Connected Device
 ```bash
-# Install on Google Pixel 10 Pro XL or connected emulator
+# Install on Google Pixel 10 Pro XL or connected emulator.
+# Debug builds are "WaveBalance Dev" (com.wavebalance.app.debug) and install alongside the release.
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 
-# Launch WaveBalance
-adb shell am start -n com.wavebalance.app/.MainActivity
+# Launch WaveBalance Dev
+adb shell am start -n com.wavebalance.app.debug/com.wavebalance.app.MainActivity
 ```
 
 ---
