@@ -41,7 +41,7 @@ gh release create vX.Y.Z build/release/WaveBalance.apk build/release/SHA256SUMS 
    is a pre-release. Play Protect's "unknown developer" warning is expected until the developer
    account is verified (see Android developer verification); anything else is new.
 3. Check the version: Settings > Apps > WaveBalance shows `X.Y.Z` at the bottom of App info.
-4. Open WaveBalance, allow location and nearby devices: the Dashboard and Radar fill in.
+4. Open WaveBalance, allow location and nearby devices: the Dashboard and Networks fill in.
 5. Run a full speed test: the M-Lab consent appears, and download, upload and bufferbloat show.
 
 ## 5. Make it the latest release
