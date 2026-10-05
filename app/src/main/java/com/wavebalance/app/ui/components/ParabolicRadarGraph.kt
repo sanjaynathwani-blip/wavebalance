@@ -335,7 +335,9 @@ fun ParabolicRadarGraph(
                         }
                     }
 
-                    // 4. Draw X-Axis Channel Markers
+                    // 4. Draw X-Axis Channel Markers. Every marker gets a tick; a label that
+                    // would run into the previous one is left out (narrow charts, Ch 149/157/165).
+                    var lastLabelRight = Float.NEGATIVE_INFINITY
                     channelConfig.channelMarkers.forEach { ch ->
                         val chFrac = (ch - channelConfig.startChannel).toFloat() /
                                 (channelConfig.endChannel - channelConfig.startChannel).coerceAtLeast(1)
@@ -358,7 +360,12 @@ fun ParabolicRadarGraph(
                                 typeface = android.graphics.Typeface.MONOSPACE
                                 textAlign = android.graphics.Paint.Align.CENTER
                             }
-                            drawText("Ch $ch", markerX, baselineY + 16.dp.toPx(), paint)
+                            val label = "Ch $ch"
+                            val halfWidth = paint.measureText(label) / 2
+                            if (markerX - halfWidth >= lastLabelRight + 4.dp.toPx()) {
+                                drawText(label, markerX, baselineY + 16.dp.toPx(), paint)
+                                lastLabelRight = markerX + halfWidth
+                            }
                         }
                     }
                 }
