@@ -63,6 +63,7 @@ class WifiScanEngine(private val context: Context) {
     private var lastScanTime: Long? = null
     private val scanFreshness = ScanFreshness()
     private var mockScanJob: Job? = null
+    private var throttleJob: Job? = null
     private val scanCooldownMs = 25_000L // Android 4-scans/2-min rate limit (~30s window)
 
     private val scanReceiver = object : BroadcastReceiver() {
@@ -224,6 +225,7 @@ class WifiScanEngine(private val context: Context) {
             _scanStatus.value = ScanStatus.Throttled(remainingSec)
             // Still update with available cached results
             refreshCachedScanResults()
+            countDownThrottle(retryAt = now - elapsed + scanCooldownMs)
             return
         }
 
@@ -240,6 +242,28 @@ class WifiScanEngine(private val context: Context) {
         if (!started) {
             // Android throttled the hardware scan or system is busy; read cached results immediately
             processScanResults(resultsUpdated = false)
+        }
+    }
+
+    /**
+     * Keeps the Throttled countdown true while it's shown, then labels the results as
+     * cached once a scan may be requested again. Anything newer (a fresh scan, an error,
+     * a mode switch) replaces Throttled and ends the countdown.
+     */
+    private fun countDownThrottle(retryAt: Long) {
+        throttleJob?.cancel()
+        throttleJob = scope.launch {
+            while (true) {
+                val shown = _scanStatus.value as? ScanStatus.Throttled ?: return@launch
+                val left = retryAt - SystemClock.elapsedRealtime()
+                if (left <= 0) {
+                    _scanStatus.value = ScanStatus.Cached(_accessPoints.value.size, scanFreshness.lastMeasuredAt)
+                    return@launch
+                }
+                val seconds = (left / 1000).toInt() + 1
+                if (shown.secondsCooldown != seconds) _scanStatus.value = ScanStatus.Throttled(seconds)
+                delay(250)
+            }
         }
     }
 
