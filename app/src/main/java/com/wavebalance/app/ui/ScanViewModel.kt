@@ -219,6 +219,12 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun toggleMockMode(enabled: Boolean) {
+        if (enabled == isMockMode.value) return
+        _selectedAp.value = null
+        _rssiHistory.value = emptyMap()
+        _roamingHistory.value = emptyList()
+        lastScanSampleTime.clear()
+        lastActiveConn = null
         engine.setMockMode(enabled)
     }
 
