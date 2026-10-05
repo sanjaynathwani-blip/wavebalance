@@ -34,11 +34,15 @@ gh release create vX.Y.Z build/release/WaveBalance.apk build/release/SHA256SUMS 
 ## 4. First-install check, on the device, without adb
 
 1. Uninstall WaveBalance (debug builds are "WaveBalance Dev" and can stay).
-2. In Chrome on the device, open the pre-release's page, download **WaveBalance.apk**, open it
-   and install it. Play Protect's "unknown developer" warning is expected until the developer
+2. In Chrome on the device, open the pre-release's own page
+   (`https://github.com/sanjaynathwani-blip/wavebalance/releases/tag/vX.Y.Z`), download
+   **WaveBalance.apk** from its Assets, open it and install it. Don't use the README's download
+   link: it points to the *latest* release, which is still the previous version while this one
+   is a pre-release. Play Protect's "unknown developer" warning is expected until the developer
    account is verified (see Android developer verification); anything else is new.
-3. Open WaveBalance, allow location and nearby devices: the Dashboard and Radar fill in.
-4. Run a full speed test: the M-Lab consent appears, and download, upload and bufferbloat show.
+3. Check the version: Settings > Apps > WaveBalance shows `X.Y.Z` at the bottom of App info.
+4. Open WaveBalance, allow location and nearby devices: the Dashboard and Radar fill in.
+5. Run a full speed test: the M-Lab consent appears, and download, upload and bufferbloat show.
 
 ## 5. Make it the latest release
 
