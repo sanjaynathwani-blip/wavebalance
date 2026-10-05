@@ -92,7 +92,7 @@ fun OptimizerScreen(
     modifier: Modifier = Modifier
 ) {
     val activeConn by viewModel.activeConnection.collectAsState()
-    val allAps by viewModel.filteredAccessPoints.collectAsState()
+    val allAps by viewModel.allAccessPoints.collectAsState()
     val isMockMode by viewModel.isMockMode.collectAsState()
     val ownNetworkBssids by viewModel.ownNetworkBssids.collectAsState()
 

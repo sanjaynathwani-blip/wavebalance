@@ -28,6 +28,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
 
     val engine = WifiScanEngine(application)
 
+    // Analysis uses the complete scan; Radar filters only change its displayed list.
+    val allAccessPoints: StateFlow<List<AccessPoint>> = engine.accessPoints
     val activeConnection: StateFlow<ActiveConnectionInfo?> = engine.activeConnection
     val scanStatus: StateFlow<ScanStatus> = engine.scanStatus
     val isMockMode: StateFlow<Boolean> = engine.isMockMode
