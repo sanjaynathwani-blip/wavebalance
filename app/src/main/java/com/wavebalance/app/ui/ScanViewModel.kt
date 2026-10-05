@@ -232,8 +232,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         engine.toggleHomeTag(bssid)
     }
 
-    fun simulateChannelMigration(newChannel: Int, newWidth: com.wavebalance.app.model.ChannelWidth = com.wavebalance.app.model.ChannelWidth.WIDTH_80) {
-        engine.simulateChannelMigration(newChannel, newWidth)
+    fun simulateChannelMigration(newChannel: Int, newWidth: com.wavebalance.app.model.ChannelWidth, band: FrequencyBand, centerFrequencyMhz: Int) {
+        engine.simulateChannelMigration(newChannel, newWidth, band, centerFrequencyMhz)
     }
 
     fun simulateRoamToCandidate() {
@@ -252,7 +252,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
         val recommendation = com.wavebalance.app.model.ChannelOptimizerEngine.evaluateBand(
             band = conn?.band ?: FrequencyBand.BAND_5_GHZ,
             allAps = engine.accessPoints.value,
-            currentChannel = conn?.channel ?: 36,
+            currentChannel = conn?.channel ?: 0,
+            targetWidth = conn?.channelWidth ?: com.wavebalance.app.model.ChannelWidth.UNKNOWN,
             ownNetworkBssids = NetworkGroups.ownNetwork(engine.accessPoints.value, conn?.bssid, conn?.cleanSsid)
         )
         val markdown = com.wavebalance.app.model.RfAuditReportGenerator.generateMarkdownReport(
