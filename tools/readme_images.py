@@ -8,7 +8,7 @@ SHOTS_DIR holds full-screen adb captures (`adb exec-out screencap -p`) of a Goog
 (2880x1800 px, 260 dpi) with the WaveBalance window at WINDOW, showing **simulated data**
 (the S key), never a real network:
 
-  dashboard.png radar.png details.png optimizer.png survey.png
+  dashboard.png networks.png optimizer.png survey.png
                           the desktop layout, one capture per screen
   medium.png              the Dashboard with the window resized to MEDIUM (side rail)
   compact.png             the Dashboard with the window resized to COMPACT (bottom bar)
@@ -31,7 +31,7 @@ SHOTS = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else pathlib.Path.home() /
 WINDOW = (403, 191, 2476, 1487)  # left, top, right, bottom of the desktop-size window
 MEDIUM_RIGHT, COMPACT_RIGHT = 1563, 1183  # right edge when resized (same left and top)
 CAPTION = 65  # px of window caption above the app
-SCREENS = ["dashboard", "radar", "details", "optimizer", "survey"]
+SCREENS = ["dashboard", "networks", "optimizer", "survey"]
 ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 
@@ -102,7 +102,9 @@ def vector_to_svg(*drawables):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     save(framed(app_only("dashboard"), 1600), "hero.png")
-    for name in SCREENS[1:]:
+    # Networks spans both columns of the README's table
+    save(framed(app_only("networks"), 1600), "networks.png")
+    for name in SCREENS[2:]:
         save(framed(app_only(name), 1200), f"{name}.png")
 
     # The same Dashboard at two smaller window sizes, side by side, at the same scale.

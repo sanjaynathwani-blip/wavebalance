@@ -87,7 +87,8 @@ class ScanViewModel(application: Application) : AndroidViewModel(application) {
             val matchesBand = band == null || ap.band == band
             val matchesQuery = query.isBlank() ||
                     ap.ssid.contains(query, ignoreCase = true) ||
-                    ap.bssid.contains(query, ignoreCase = true)
+                    ap.bssid.contains(query, ignoreCase = true) ||
+                    WifiVendorLookup.getVendor(ap.bssid).contains(query, ignoreCase = true)
             matchesBand && matchesQuery
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Networks replaces Radar and AP Details.** On a wide window the radar, the band filters and
+  a sortable table of every network sit beside the selected network's details. Search also
+  matches the vendor. Shortcuts: N or 2 for Networks (R and A still work), and the numbers
+  follow the navigation panel: 3 Optimizer, 4 Survey, 5 Speed Test.
+
 ## 1.2.0 (2026-10-05)
 
 Fixes from [Jesse Johnston](https://github.com/jessejamesjohnston) (#1-#5).

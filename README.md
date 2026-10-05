@@ -44,9 +44,9 @@ read from Android and the access points, or measured; when something isn't known
 
 - **Dashboard:** your connection at a glance: channel, signal, security, spatial streams,
   bandwidth, link rate, and how crowded the airspace is.
-- **Radar:** every network drawn on its channels, band by band, so overlaps are obvious.
-- **AP Details:** each access point's vendor, security, Wi-Fi generation, roaming support
-  (802.11k/v/r) and a live signal graph for the one you're on.
+- **Networks:** every network drawn on its channels, band by band, so overlaps are obvious,
+  in a sortable table beside the selected access point's details: vendor, security, Wi-Fi
+  generation, roaming support (802.11k/v/r) and a live signal graph for the one you're on.
 - **Optimizer:** scores every channel and recommends the clearest one for your router.
 - **Survey:** pin signal readings on a floor plan, room by room, and see the coverage as a
   heatmap with dead zones.
@@ -59,8 +59,8 @@ read from Android and the access points, or measured; when something isn't known
 WaveBalance is designed for a laptop: a resizable window, a keyboard and a mouse.
 
 - **A desktop layout.** A navigation panel down the left shows every screen with its shortcut
-  key, and the Dashboard, the Optimizer and the Speed Test use two columns, so far more fits on
-  screen at once.
+  key. Networks puts the list and the selected network's details side by side, and the
+  Dashboard, the Optimizer and the Speed Test use two columns, so far more fits on screen at once.
 - **Any window size.** Resize the window and the layout follows: a side rail when it's medium,
   a bottom bar at phone width, and the full panel when there's room.
 - **Keyboard first:**
@@ -68,11 +68,10 @@ WaveBalance is designed for a laptop: a resizable window, a keyboard and a mouse
 | Keys | Action |
 | --- | --- |
 | D or 1 | Dashboard |
-| R or 2 | Radar |
-| H or 3 | Survey |
-| A or 4 | AP Details |
-| O or 5 | Optimizer |
-| T | Speed Test |
+| N or 2 | Networks (R and A also work) |
+| O or 3 | Optimizer |
+| H or 4 | Survey |
+| T or 5 | Speed Test (T again goes back) |
 | Space | Scan now |
 | E | Export report |
 | P | Pin the current signal on the survey |
@@ -88,12 +87,11 @@ WaveBalance is designed for a laptop: a resizable window, a keyboard and a mouse
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/images/radar.png" alt="Radar: the 5 GHz band with each network drawn as a curve over its channels, band filters and a searchable list"><br><b>Radar.</b> Each network as a curve over the channels it uses, so you can see who overlaps whom. Filter by band, sort by signal, search by name.</td>
-    <td width="50%"><img src="docs/images/details.png" alt="AP Details: a list of access points with channel, width, Wi-Fi generation and security, and the selected network's vendor, connection badges and live signal graph"><br><b>AP Details.</b> Every access point with its channel, width, Wi-Fi generation and security; the vendor from the IEEE registry; and a live signal graph for your connection.</td>
+    <td colspan="2"><img src="docs/images/networks.png" alt="Networks: band filters and a radar of the 5 GHz band above a sortable table of access points with signal, channel, band and width, and the selected network's vendor, connection badges and live signal graph in a pane on the right"><br><b>Networks.</b> Each network as a curve over the channels it uses, so you can see who overlaps whom, above a table you can sort by any column and search by name, BSSID or vendor. Select one to see its vendor from the IEEE registry, security, Wi-Fi generation, roaming support and a live signal graph.</td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/images/optimizer.png" alt="Optimizer: band and width selectors, the current channel 48 scoring 82 and the recommended channel 149 scoring 100, and a ranked list of channels"><br><b>Optimizer.</b> Scores each channel for the band and width you pick and recommends the clearest. Your own network's other radios aren't counted as interference.</td>
-    <td width="50%"><img src="docs/images/survey.png" alt="Survey: a floor plan with a living room and an office, six numbered pins with signal readings, and a heatmap from strong green to weak red"><br><b>Survey.</b> Walk around, pin the signal where you stand, and see your coverage as a heatmap, with dead zones and a suggested spot for a mesh node.</td>
+    <td width="50%"><img src="docs/images/optimizer.png" alt="Optimizer: band and width selectors, the current channel 48 scoring 69 and the recommended channel 149 scoring 100, and a ranked list of 80 MHz blocks with their centre channels"><br><b>Optimizer.</b> Scores each channel for the band and width you pick and recommends the clearest. Your own network's other radios aren't counted as interference.</td>
+    <td width="50%"><img src="docs/images/survey.png" alt="Survey: a floor plan with a living room, an office, a kitchen and a bedroom, four numbered pins with signal readings, a heatmap from strong green to weak orange and a recommended spot for a mesh node"><br><b>Survey.</b> Walk around, pin the signal where you stand, and see your coverage as a heatmap, with dead zones and a suggested spot for a mesh node.</td>
   </tr>
 </table>
 
@@ -163,8 +161,6 @@ right after each other may show the same results.
 
 ## To do
 
-- [ ] **Networks:** combine Radar and AP Details into one list with a detail pane, and a table
-  view with sortable columns.
 - [ ] **More desktop:** right-click menus, tooltips and an in-app list of shortcuts.
 - [ ] **Survey:** keep pins between sessions, and a wider layout for the floor plan.
 - [ ] **Narrow windows:** the SIMULATED label gets squeezed in very narrow windows.

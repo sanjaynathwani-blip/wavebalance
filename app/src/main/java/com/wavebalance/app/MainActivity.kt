@@ -83,7 +83,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.wavebalance.app.data.ScanStatus
 import com.wavebalance.app.model.SurveyPoint
 import com.wavebalance.app.ui.ScanViewModel
-import com.wavebalance.app.ui.WifiScanScreen
 import com.wavebalance.app.ui.adaptive.LocalWindowLayout
 import com.wavebalance.app.ui.adaptive.WindowLayout
 import com.wavebalance.app.ui.components.PermissionRationaleModal
@@ -92,7 +91,7 @@ import com.wavebalance.app.ui.navigation.AppDestination
 import com.wavebalance.app.ui.navigation.AppLogo
 import com.wavebalance.app.ui.navigation.AppNavigationRail
 import com.wavebalance.app.ui.navigation.NavigationPanel
-import com.wavebalance.app.ui.screens.ApDetailScreen
+import com.wavebalance.app.ui.screens.NetworksScreen
 import com.wavebalance.app.ui.screens.DashboardScreen
 import com.wavebalance.app.ui.screens.OptimizerScreen
 import com.wavebalance.app.ui.screens.SiteSurveyScreen
@@ -199,7 +198,7 @@ fun WaveBalanceAdaptiveApp(
                     val activeBssid = activeConn?.bssid
                     val target = allAps.find { it.bssid.equals(activeBssid, ignoreCase = true) } ?: allAps.firstOrNull()
                     viewModel.selectAccessPoint(target)
-                    navigate(AppDestination.DETAILS)
+                    navigate(AppDestination.NETWORKS)
                 }
             )
         }
@@ -218,11 +217,12 @@ fun WaveBalanceAdaptiveApp(
                     keyEvent.isCtrlPressed || keyEvent.isAltPressed || keyEvent.isMetaPressed || keyEvent.isShiftPressed
                 ) return@onKeyEvent false
                 when (keyEvent.key) {
+                    // Numbers follow the navigation panel; R and A were Radar and AP Details
                     Key.One, Key.D -> { navigate(AppDestination.DASHBOARD); true }
-                    Key.Two, Key.R -> { navigate(AppDestination.RADAR); true }
-                    Key.Three, Key.H -> { navigate(AppDestination.SURVEY); true }
-                    Key.Four, Key.A -> { navigate(AppDestination.DETAILS); true }
-                    Key.Five, Key.O -> { navigate(AppDestination.OPTIMIZER); true }
+                    Key.Two, Key.N, Key.R, Key.A -> { navigate(AppDestination.NETWORKS); true }
+                    Key.Three, Key.O -> { navigate(AppDestination.OPTIMIZER); true }
+                    Key.Four, Key.H -> { navigate(AppDestination.SURVEY); true }
+                    Key.Five -> { navigate(AppDestination.SPEED); true }
                     Key.T -> { toggleSpeedTest(); true }
                     Key.S -> { viewModel.toggleMockMode(!isMockMode); true }
                     Key.E -> { viewModel.shareAuditReport(context); true }
@@ -321,7 +321,7 @@ fun WaveBalanceAdaptiveApp(
                         CompactTopBar(
                             destination = currentDestination,
                             isMockMode = isMockMode,
-                            showSpeedAction = true,
+                            showSpeedAction = false,
                             onMockModeChange = { viewModel.toggleMockMode(it) },
                             onToggleSpeedTest = toggleSpeedTest,
                             onExport = { viewModel.shareAuditReport(context) },
@@ -365,29 +365,21 @@ private fun DestinationContent(
     when (destination) {
         AppDestination.DASHBOARD -> DashboardScreen(
             viewModel = viewModel,
-            onNavigateToRadar = { onNavigate(AppDestination.RADAR) },
+            onNavigateToRadar = { onNavigate(AppDestination.NETWORKS) },
             onNavigateToOptimizer = { onNavigate(AppDestination.OPTIMIZER) },
             onNavigateToSurvey = { onNavigate(AppDestination.SURVEY) },
             onNavigateToSpeedDiagnostic = { onNavigate(AppDestination.SPEED) },
             onNavigateToDetails = onOpenDetailsForActive
         )
-        AppDestination.RADAR -> WifiScanScreen(
+        AppDestination.NETWORKS -> NetworksScreen(
             viewModel = viewModel,
             onRequestPermissions = onRequestPermissions,
-            onTextInputFocusChanged = onTextInputFocusChanged,
-            onNavigateToDetails = { ap ->
-                viewModel.selectAccessPoint(ap)
-                onNavigate(AppDestination.DETAILS)
-            }
+            onTextInputFocusChanged = onTextInputFocusChanged
         )
         AppDestination.SURVEY -> SiteSurveyScreen(viewModel = viewModel)
-        AppDestination.DETAILS -> ApDetailScreen(
-            viewModel = viewModel,
-            onNavigateBack = { onNavigate(AppDestination.RADAR) }
-        )
         AppDestination.OPTIMIZER -> OptimizerScreen(
             viewModel = viewModel,
-            onNavigateToRadar = { onNavigate(AppDestination.RADAR) }
+            onNavigateToRadar = { onNavigate(AppDestination.NETWORKS) }
         )
         AppDestination.SPEED -> SpeedDiagnosticScreen(viewModel = viewModel)
     }
