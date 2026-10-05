@@ -1,11 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.3.0 (2026-10-05)
 
 - **Networks replaces Radar and AP Details.** On a wide window the radar, the band filters and
   a sortable table of every network sit beside the selected network's details. Search also
   matches the vendor. Shortcuts: N or 2 for Networks (R and A still work), and the numbers
   follow the navigation panel: 3 Optimizer, 4 Survey, 5 Speed Test.
+- **Honest scan status** (from [Jesse Johnston](https://github.com/jessejamesjohnston), #7).
+  When Android limits or refuses a scan, the results on screen are labelled as cached, with
+  the time they were last measured, instead of looking fresh. The "retry in" wait counts down.
+  Scan failures stay visible, and a permission error no longer clears the list.
+- **Radar labels don't overlap.** Channel labels that would run into each other are left out;
+  every channel keeps its tick.
 
 ## 1.2.0 (2026-10-05)
 
