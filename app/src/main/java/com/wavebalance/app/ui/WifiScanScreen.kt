@@ -54,7 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.wavebalance.app.data.ScanStatus
+import com.wavebalance.app.model.ScanStatus
 import com.wavebalance.app.model.AccessPoint
 import com.wavebalance.app.model.FrequencyBand
 import com.wavebalance.app.ui.components.AccessPointItemCard
@@ -402,6 +402,18 @@ fun WifiScanScreen(
                         }
                     }
                 }
+            }
+            is ScanStatus.Cached -> item {
+                Text(
+                    text = "Showing cached results. " + (status.lastMeasuredAt?.let {
+                        "Last measured " + java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(it))
+                    } ?: "Measurement time is unknown."),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TertiaryContainerAmber
+                )
+            }
+            is ScanStatus.Error -> item {
+                Text(status.message, color = MaterialTheme.colorScheme.error)
             }
             else -> {}
         }
